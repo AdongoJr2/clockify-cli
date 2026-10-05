@@ -1,8 +1,8 @@
 # clockify ⏱
 
 [![CI](https://github.com/AdongoJr2/clockify-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/AdongoJr2/clockify-cli/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/AdongoJr2/clockify-cli?label=release&color=03A9F4)](https://github.com/AdongoJr2/clockify-cli/releases/latest)
-[![Container](https://img.shields.io/badge/container-ghcr.io%2FAdongoJr2%2Fclockify-cli-03A9F4)](https://github.com/AdongoJr2/clockify-cli/pkgs/container/clockify-cli)
+[![Release](https://img.shields.io/badge/release-latest-03A9F4?logo=github&logoColor=white)](https://github.com/AdongoJr2/clockify-cli/releases/latest)
+[![Container](https://img.shields.io/badge/container-ghcr.io-03A9F4?logo=docker&logoColor=white)](https://github.com/AdongoJr2/clockify-cli/pkgs/container/clockify-cli)
 [![Go](https://img.shields.io/badge/go-1.27-03A9F4?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -300,6 +300,10 @@ To re-publish an existing tag, run the **Release** workflow manually
 
 Day-to-day pushes to `main` run **CI** (gofmt, vet, build, `go test -race`) and
 publish a `latest` container image.
+
+## Changelog
+
+Release history lives in **[CHANGELOG.md](CHANGELOG.md)** ([Keep a Changelog](https://keepachangelog.com/en/1.1.0/) + [SemVer](https://semver.org/)). GitHub release notes are generated from that file, so the Releases page and the changelog never drift apart — add your entry under `## [Unreleased]` and it becomes the notes for the next tag.
 
 ## License
 

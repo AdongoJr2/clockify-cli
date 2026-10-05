@@ -15,6 +15,10 @@ on:
 permissions:
   contents: write
 
+# Run every action on the Node 24 runtime.
+env:
+  ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node24
+
 jobs:
   meta:
     name: resolve version
@@ -45,11 +49,11 @@ jobs:
           - { goos: darwin, goarch: arm64 }
           - { goos: windows, goarch: amd64 }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -76,7 +80,7 @@ jobs:
           rm -f "${name}${ext}"
           ls -lh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
           path: |
@@ -89,12 +93,13 @@ jobs:
     needs: [meta, build]
     runs-on: ubuntu-latest
     steps:
-      # Required: `gh release create --verify-tag` resolves the tag with git.
-      - uses: actions/checkout@v4
+      # Required: `gh release create --verify-tag` resolves the tag with git,
+      # and the changelog notes are read from the working tree.
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -106,13 +111,32 @@ jobs:
           sha256sum ./*.tar.gz ./*.zip > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Create the release
+      - name: Create or refresh the release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.meta.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "$TAG" dist/* \
-            --title "$TAG" \
-            --generate-notes \
-            --verify-tag
+          version="${TAG#v}"
+
+          # Release notes come from the matching CHANGELOG.md section; when
+          # that version has no section yet, fall back to GitHub's generated
+          # notes.
+          notes="$(mktemp)"
+          awk -v tag="$version" '
+            index($0, "## [" tag "]") == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > "$notes"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists — refreshing assets and notes"
+            gh release upload "$TAG" dist/* --clobber
+            if [ -s "$notes" ]; then
+              gh release edit "$TAG" --title "$TAG" --notes-file "$notes"
+            fi
+          elif [ -s "$notes" ]; then
+            gh release create "$TAG" dist/* --title "$TAG" --notes-file "$notes" --verify-tag
+          else
+            gh release create "$TAG" dist/* --title "$TAG" --generate-notes --verify-tag
+          fi
