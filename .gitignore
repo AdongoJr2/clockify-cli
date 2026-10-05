@@ -1,0 +1,31 @@
+# Binaries
+/clockify
+clockify-cli
+*.exe
+*.test
+*.out
+
+# Build output
+/dist/
+/bin/
+
+# Secrets & local env
+.env
+.env.*
+*.local
+
+# Coverage
+coverage.out
+coverage.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Local planning artifact (not part of the project)
+clockify_cli_ai_prompt.txt
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
