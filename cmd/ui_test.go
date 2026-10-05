@@ -56,6 +56,23 @@ func TestTruncate(t *testing.T) {
 	}
 }
 
+func TestSanitize(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"plain", "plain"},
+		{"line one\nline two", "line one line two"},
+		{"  tabs\tand   repeats  ", "tabs and repeats"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		if got := sanitize(tt.in); got != tt.want {
+			t.Errorf("sanitize(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestPad(t *testing.T) {
 	if got := pad("ab", 5); got != "ab   " {
 		t.Errorf("pad = %q, want %q", got, "ab   ")

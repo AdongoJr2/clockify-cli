@@ -111,6 +111,7 @@ clockify list                   # last 5 entries
 clockify list -n 10             # last 10 entries
 clockify list --range last-week # only last week
 clockify list --from 2026-10-01 --to 2026-10-07
+clockify list --no-trunc        # full descriptions and project names
 
 clockify update <entry-id> -d "Renamed task"
 clockify update <entry-id> --start "09:00" --end "11:00"
@@ -188,6 +189,9 @@ clockify list --range last-week -n 10        # combine with -n
   the window but ran into it won't be listed (that's how the Clockify API works).
 - Filtered views show up to 50 entries by default (a full page) instead of 5;
   pass `-n` to cap it.
+- Long descriptions and project names are truncated to fit the table
+  (multi-line descriptions collapse to a single row); pass `--no-trunc` to
+  show them in full.
 - With shell completion enabled (`clockify completion bash`), `--range`
   suggests the valid presets.
 

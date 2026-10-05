@@ -137,3 +137,9 @@ func truncate(s string, n int) string {
 	}
 	return string(kept) + "…"
 }
+
+// sanitize collapses all whitespace (tabs, newlines, repeats) into single
+// spaces so multi-line descriptions render as one row in tables.
+func sanitize(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}

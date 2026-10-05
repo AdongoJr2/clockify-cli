@@ -14,6 +14,7 @@ var listFlags struct {
 	rangeName string
 	from      string
 	to        string
+	noTrunc   bool
 }
 
 var listCmd = &cobra.Command{
@@ -28,10 +29,14 @@ last-month, 7d, 30d, 90d, all.
 Filtering matches an entry's *start* time, so an entry that began before the
 window but ran into it will not be listed.
 
+Long descriptions and project names are truncated to fit the table —
+pass --no-trunc to show them in full.
+
 Examples:
   clockify list                                # recent 5
   clockify list --range last-week
   clockify list --range today -n 20
+  clockify list --no-trunc                     # full text, no truncation
   clockify list --from 2026-10-01 --to 2026-10-07
   clockify list --from "2026-10-01 09:00"
   clockify list --range 30d`,
@@ -44,6 +49,7 @@ func init() {
 	listCmd.Flags().StringVar(&listFlags.rangeName, "range", "", "filter by period: today, yesterday, this-week, last-week, this-month, last-month, 7d, 30d, 90d, all")
 	listCmd.Flags().StringVar(&listFlags.from, "from", "", `custom window start ("2026-10-01", "2026-10-01 09:00", or RFC3339)`)
 	listCmd.Flags().StringVar(&listFlags.to, "to", "", "custom window end (same formats; defaults to now)")
+	listCmd.Flags().BoolVar(&listFlags.noTrunc, "no-trunc", false, "show full descriptions and project names instead of truncating")
 
 	_ = listCmd.RegisterFlagCompletionFunc("range", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return canonicalRangeNames(), cobra.ShellCompDirectiveNoFileComp
@@ -118,7 +124,12 @@ func runList(cmd *cobra.Command, _ []string) error {
 	for i := range entries {
 		e := &entries[i]
 
-		desc := truncate(e.Description, 40)
+		// sanitize collapses internal whitespace (incl. newlines) into single
+		// spaces so descriptions always render as one table row.
+		desc := sanitize(e.Description)
+		if !listFlags.noTrunc {
+			desc = truncate(desc, 40)
+		}
 		if desc == "" {
 			desc = mutedStyle.Render("—")
 		}
@@ -130,9 +141,11 @@ func runList(cmd *cobra.Command, _ []string) error {
 				project += " / " + e.Project.ClientName
 			}
 		} else if id := e.EffectiveProjectID(); id != "" {
-			project = truncate(id, 14)
+			project = truncate(id, 14) // IDs stay short even with --no-trunc
 		}
-		project = truncate(project, 30)
+		if !listFlags.noTrunc {
+			project = truncate(project, 30)
+		}
 
 		startStr, endStr, durStr := "—", "—", "—"
 		if ti := e.TimeInterval; ti != nil {

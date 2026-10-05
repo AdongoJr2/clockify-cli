@@ -673,6 +673,46 @@ func TestListCustomWindowEndToEnd(t *testing.T) {
 	}
 }
 
+func TestListNoTruncEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+	mock.setEntries([]clockify.TimeEntry{
+		{
+			ID:          "e-long",
+			Description: "Addressing PR review comments on my pull request in painstaking detail",
+			Project:     &clockify.ProjectBrief{ID: "p9", Name: "Website Scaffold", ClientName: "Technopreneurs International Enterprises"},
+			TimeInterval: &clockify.TimeInterval{
+				Start: ptrTime(time.Date(2026, 10, 5, 16, 30, 0, 0, time.UTC)),
+				End:   ptrTime(time.Date(2026, 10, 5, 19, 0, 0, 0, time.UTC)),
+			},
+		},
+	})
+
+	out, err := runCLI(t, "list", "--no-trunc")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	const desc = "Addressing PR review comments on my pull request in painstaking detail"
+	const proj = "Website Scaffold / Technopreneurs International Enterprises"
+	if !strings.Contains(out, desc) {
+		t.Errorf("full description missing:\n%s", out)
+	}
+	if !strings.Contains(out, proj) {
+		t.Errorf("full project missing:\n%s", out)
+	}
+	if strings.Contains(out, "…") {
+		t.Errorf("no ellipsis should appear with --no-trunc:\n%s", out)
+	}
+
+	out, err = runCLI(t, "list")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "…") {
+		t.Errorf("default view should still truncate:\n%s", out)
+	}
+}
+
 func TestListRespectsExplicitCountWithRange(t *testing.T) {
 	mock := newMockClockify(t)
 	setupCLIEnv(t, mock.server.URL)

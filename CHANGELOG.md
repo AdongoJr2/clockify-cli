@@ -12,6 +12,9 @@ concise and user-facing.
 
 ### Added
 
+- `clockify list --no-trunc`: show full descriptions and project names instead
+  of the default 40/30-character table truncation. Descriptions containing
+  newlines are collapsed to a single table row in both modes.
 - `clockify projects`: list workspace projects (name, ID, active/archived
   status, billable) with `--active`, `--archived`, `-p/--project` (server-side
   substring search), `--exact`, and `-n/--count`.
