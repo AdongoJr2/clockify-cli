@@ -1,0 +1,9 @@
+.git
+.github
+.gitignore
+clockify
+dist
+*.md
+*.txt
+!go.mod
+!go.sum

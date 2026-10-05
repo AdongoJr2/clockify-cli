@@ -1,6 +1,9 @@
 # clockify ⏱
 
 [![CI](https://github.com/AdongoJr2/clockify-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/AdongoJr2/clockify-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/AdongoJr2/clockify-cli?label=release&color=03A9F4)](https://github.com/AdongoJr2/clockify-cli/releases/latest)
+[![Container](https://img.shields.io/badge/container-ghcr.io%2FAdongoJr2%2Fclockify-cli-03A9F4)](https://github.com/AdongoJr2/clockify-cli/pkgs/container/clockify-cli)
+[![Go](https://img.shields.io/badge/go-1.27-03A9F4?logo=go&logoColor=white)](https://go.dev)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A modern, colorful CLI for [Clockify](https://clockify.me) — start and stop
@@ -20,6 +23,40 @@ terminal.
 - ⚡ Disk-cached user/project lookups to stay within Free-plan rate limits
 
 ## Installation
+
+### Prebuilt binaries (all platforms)
+
+Grab a tarball from [Releases](https://github.com/AdongoJr2/clockify-cli/releases/latest):
+
+```bash
+# Linux (amd64)
+curl -fsSL -o clockify.tar.gz \
+  https://github.com/AdongoJr2/clockify-cli/releases/latest/download/clockify-linux-amd64.tar.gz
+tar -xzf clockify.tar.gz && sudo mv clockify /usr/local/bin/
+
+# macOS (Apple silicon) — use darwin-arm64, or darwin-amd64 for Intel
+curl -fsSL https://github.com/AdongoJr2/clockify-cli/releases/latest/download/clockify-darwin-arm64.tar.gz \
+  | tar -xz && sudo mv clockify /usr/local/bin/
+```
+
+Checksums (`SHA256SUMS`) are published with every release; verify with
+`sha256sum -c SHA256SUMS`.
+
+### Container
+
+```bash
+docker pull ghcr.io/adongojr2/clockify-cli:latest
+
+# keep config/cached lookups in a named volume so credentials persist
+docker volume create clockify-config
+docker run --rm -it -v clockify-config:/config ghcr.io/adongojr2/clockify-cli:latest config init
+docker run --rm -it -v clockify-config:/config ghcr.io/adongojr2/clockify-cli:latest list
+```
+
+Images are multi-arch (`linux/amd64`, `linux/arm64`) and versioned by git tag
+(`ghcr.io/adongojr2/clockify-cli:v0.5.0`) plus `latest`.
+
+### From source
 
 Requires [Go](https://go.dev/dl/) 1.27 or newer.
 
@@ -239,18 +276,30 @@ config init` with **no flags** in a real terminal (Huh forms need a TTY).
 
 ## Releasing
 
-Stamp the version at build time:
+Releases are automated — push a tag and GitHub Actions does the rest:
 
 ```bash
-go build -ldflags "-X github.com/AdongoJr2/clockify-cli/cmd.version=v1.0.0" -o clockify .
+git tag v0.5.0
+git push origin v0.5.0
 ```
 
-Then tag and publish:
+That triggers `.github/workflows/release.yml`, which:
 
-```bash
-git tag v1.0.0 && git push --tags
-gh release create v1.0.0 clockify --title "v1.0.0"
-```
+1. cross-compiles binaries for `linux/amd64`, `linux/arm64`, `darwin/amd64`,
+   `darwin/arm64`, `windows/amd64` (static, version stamped from the tag),
+2. packs each into `.tar.gz` / `.zip` and uploads them as workflow artifacts,
+3. generates `SHA256SUMS`,
+4. creates the GitHub Release with auto-generated release notes and attaches
+   every archive.
+
+The same tag also publishes a versioned container image to
+`ghcr.io/adongojr2/clockify-cli:v0.5.0` via `.github/workflows/docker.yml`.
+
+To re-publish an existing tag, run the **Release** workflow manually
+(*Actions → Release → Run workflow*) and pass the tag.
+
+Day-to-day pushes to `main` run **CI** (gofmt, vet, build, `go test -race`) and
+publish a `latest` container image.
 
 ## License
 

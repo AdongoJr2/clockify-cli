@@ -1,0 +1,113 @@
+name: Release
+
+# Tag a version (v0.5.0) and push it: binaries for every platform are built,
+# checksummed, and attached to a GitHub Release automatically.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to publish (e.g. v0.5.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  meta:
+    name: resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.m.outputs.tag }}
+      version: ${{ steps.m.outputs.version }}
+    steps:
+      - id: m
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then TAG="${GITHUB_REF#refs/tags/}"; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: meta
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary and archive
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          name="clockify-${GOOS}-${GOARCH}"
+          ext=""
+          if [ "$GOOS" = "windows" ]; then ext=".exe"; fi
+
+          CGO_ENABLED=0 go build -trimpath \
+            -ldflags "-s -w -X github.com/AdongoJr2/clockify-cli/cmd.version=${VERSION}" \
+            -o "${name}${ext}" .
+
+          if [ "$GOOS" = "windows" ]; then
+            zip -q "${name}.zip" "${name}${ext}"
+          else
+            tar -czf "${name}.tar.gz" "${name}${ext}"
+          fi
+          rm -f "${name}${ext}"
+          ls -lh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            clockify-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
+            clockify-${{ matrix.goos }}-${{ matrix.goarch }}.zip
+          if-no-files-found: error
+
+  release:
+    name: publish github release
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum ./*.tar.gz ./*.zip > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" dist/* \
+            --title "$TAG" \
+            --generate-notes \
+            --verify-tag
