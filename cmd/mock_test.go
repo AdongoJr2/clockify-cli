@@ -17,6 +17,7 @@ import (
 type mockRequest struct {
 	Method string
 	Path   string
+	Query  string
 	Body   string
 }
 
@@ -86,7 +87,7 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 
 	m.mu.Lock()
-	m.requests = append(m.requests, mockRequest{Method: r.Method, Path: r.URL.Path, Body: string(raw)})
+	m.requests = append(m.requests, mockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(raw)})
 	running, entries := m.running, m.entries
 	m.mu.Unlock()
 

@@ -72,6 +72,8 @@ clockify log                    # interactive form (project picker by name)
 
 clockify list                   # last 5 entries
 clockify list -n 10             # last 10 entries
+clockify list --range last-week # only last week
+clockify list --from 2026-10-01 --to 2026-10-07
 
 clockify update <entry-id> -d "Renamed task"
 clockify update <entry-id> --start "09:00" --end "11:00"
@@ -83,6 +85,28 @@ clockify delete <entry-id>        # by ID, with confirmation
 clockify delete --yes -d "..."    # no prompt (scripts/CI)
 clockify delete                   # pick from recent entries
 ```
+
+### Filtering by date range
+
+`clockify list` can filter entries by a predefined period or a custom window:
+
+```bash
+clockify list --range today          # or: yesterday, this-week (week),
+                                     #    last-week, this-month (month),
+                                     #    last-month, 7d, 30d, 90d, all
+clockify list --from 2026-10-01 --to 2026-10-07
+clockify list --from "2026-10-01 09:00"      # --to defaults to now
+clockify list --range last-week -n 10        # combine with -n
+```
+
+- Weeks are **Monday-based (ISO)**; all bounds are computed in your local
+  timezone and sent to Clockify as UTC.
+- Filtering matches an entry's **start time**, so an entry that began before
+  the window but ran into it won't be listed (that's how the Clockify API works).
+- Filtered views show up to 50 entries by default (a full page) instead of 5;
+  pass `-n` to cap it.
+- With shell completion enabled (`clockify completion bash`), `--range`
+  suggests the valid presets.
 
 ### Deleting entries
 

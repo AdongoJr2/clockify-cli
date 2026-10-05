@@ -19,6 +19,7 @@ In-memory only: restart to reset state. Not for production use.
 
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlparse
 
 USER = {"id": "u1", "name": "Demo User", "email": "demo@example.com", "activeWorkspace": "w1"}
 WORKSPACES = [{"id": "w1", "name": "My Workspace"}]
@@ -87,7 +88,16 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send(entry)
         elif "/time-entries" in path:
-            self._send(ENTRIES)
+            # Honor ?start= / ?end= filters (ISO-8601, compared as strings).
+            query = parse_qs(urlparse(self.path).query)
+            items = ENTRIES
+            start = query.get("start", [None])[0]
+            end = query.get("end", [None])[0]
+            if start:
+                items = [e for e in items if (e.get("timeInterval") or {}).get("start", "") >= start]
+            if end:
+                items = [e for e in items if (e.get("timeInterval") or {}).get("start", "") <= end]
+            self._send(items)
         else:
             self._send({"message": f"no mock for GET {path}"}, 404)
 

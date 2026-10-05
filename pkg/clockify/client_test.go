@@ -365,6 +365,34 @@ func TestErrorEnvelopeVariants(t *testing.T) {
 	}
 }
 
+func TestGetTimeEntriesDateRange(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("start") != "2026-10-01T00:00:00Z" {
+			t.Errorf("start = %q, want 2026-10-01T00:00:00Z", q.Get("start"))
+		}
+		if q.Get("end") != "2026-10-08T00:00:00Z" {
+			t.Errorf("end = %q, want 2026-10-08T00:00:00Z", q.Get("end"))
+		}
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	// Local 02:00 at +02:00 normalizes to 00:00 UTC on the wire.
+	loc := time.FixedZone("CEST", 2*3600)
+	start := time.Date(2026, 10, 1, 2, 0, 0, 0, loc)
+	end := time.Date(2026, 10, 8, 2, 0, 0, 0, loc)
+
+	_, err := NewClient(server.URL, "k").GetTimeEntries(context.Background(), "w1", "u1", TimeEntryListParams{
+		Page: 1, PageSize: 50, Start: Ptr(start), End: Ptr(end),
+	})
+	if err != nil {
+		t.Fatalf("GetTimeEntries: %v", err)
+	}
+}
+
 func TestDeleteTimeEntry(t *testing.T) {
 	t.Parallel()
 

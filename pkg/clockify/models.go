@@ -132,7 +132,9 @@ type StopTimeEntryRequest struct {
 
 // TimeEntryListParams are query options for GetTimeEntries.
 type TimeEntryListParams struct {
-	Page     int  // 1-indexed; omitted from the query when <= 0
-	PageSize int  // omitted from the query when <= 0
-	Hydrated bool // embed project/task/tag objects instead of bare IDs
+	Page     int        // 1-indexed; omitted from the query when <= 0
+	PageSize int        // omitted from the query when <= 0
+	Hydrated bool       // embed project/task/tag objects instead of bare IDs
+	Start    *time.Time // only entries starting at/after this time (UTC on the wire)
+	End      *time.Time // only entries starting at/before this time (UTC on the wire)
 }

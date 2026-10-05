@@ -501,3 +501,80 @@ func TestDeleteNoMatchingDescription(t *testing.T) {
 		t.Error("no DELETE should be sent when nothing matches")
 	}
 }
+
+func TestListRangePresetEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "list", "--range", "last-week")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "Last week") {
+		t.Errorf("header should name the range:\n%s", out)
+	}
+	if !strings.Contains(out, "Deep work") {
+		t.Errorf("entries missing from output:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodGet, "/time-entries")
+	if !ok {
+		t.Fatal("no GET /time-entries recorded")
+	}
+	if !strings.Contains(req.Query, "start=") {
+		t.Errorf("query should carry a start filter: %q", req.Query)
+	}
+	// Filtered views default to a full page unless -n is given.
+	if !strings.Contains(req.Query, "page-size=50") {
+		t.Errorf("filtered list should default to page-size=50: %q", req.Query)
+	}
+}
+
+func TestListCustomWindowEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "list", "--from", "2026-10-01", "--to", "2026-10-07")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "01 Oct 2026") {
+		t.Errorf("header should show the custom window:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodGet, "/time-entries")
+	if !ok {
+		t.Fatal("no GET /time-entries recorded")
+	}
+	if !strings.Contains(req.Query, "start=") || !strings.Contains(req.Query, "end=") {
+		t.Errorf("query should carry both bounds: %q", req.Query)
+	}
+}
+
+func TestListRespectsExplicitCountWithRange(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	if _, err := runCLI(t, "list", "--range", "today", "-n", "3"); err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	req, _ := mock.find(http.MethodGet, "/time-entries")
+	if !strings.Contains(req.Query, "page-size=3") {
+		t.Errorf("explicit -n must win over the filtered default: %q", req.Query)
+	}
+}
+
+func TestListRangeErrors(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	if _, err := runCLI(t, "list", "--range", "yesteryear"); err == nil || !strings.Contains(err.Error(), "unknown range") {
+		t.Errorf("err = %v, want 'unknown range'", err)
+	}
+	if _, err := runCLI(t, "list", "--range", "today", "--from", "2026-10-01"); err == nil {
+		t.Error("--range with --from/--to must be rejected")
+	}
+	if _, err := runCLI(t, "list", "--from", "2026-10-07", "--to", "2026-10-01"); err == nil {
+		t.Error("reversed custom window must be rejected")
+	}
+}

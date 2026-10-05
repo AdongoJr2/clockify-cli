@@ -178,7 +178,9 @@ func (c *Client) GetProjects(ctx context.Context, workspaceID string) ([]Project
 	return all, nil
 }
 
-// GetTimeEntries lists a user's time entries (newest first).
+// GetTimeEntries lists a user's time entries (newest first). When params.Start
+// or params.End are set, only entries whose *start time* falls inside the
+// window are returned (Clockify filters on entry start, not on overlap).
 func (c *Client) GetTimeEntries(ctx context.Context, workspaceID, userID string, params TimeEntryListParams) ([]TimeEntry, error) {
 	query := url.Values{}
 	if params.Page > 0 {
@@ -189,6 +191,12 @@ func (c *Client) GetTimeEntries(ctx context.Context, workspaceID, userID string,
 	}
 	if params.Hydrated {
 		query.Set("hydrated", "true")
+	}
+	if params.Start != nil {
+		query.Set("start", params.Start.UTC().Format(time.RFC3339))
+	}
+	if params.End != nil {
+		query.Set("end", params.End.UTC().Format(time.RFC3339))
 	}
 
 	path := fmt.Sprintf("/workspaces/%s/user/%s/time-entries", url.PathEscape(workspaceID), url.PathEscape(userID))

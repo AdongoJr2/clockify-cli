@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/AdongoJr2/clockify-cli/pkg/clockify"
@@ -9,23 +10,44 @@ import (
 )
 
 var listFlags struct {
-	count int
+	count     int
+	rangeName string
+	from      string
+	to        string
 }
 
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List your most recent time entries",
-	Long: `Display your most recent time entries in a colorful table.
+	Short: "List your time entries, optionally filtered by date range",
+	Long: `Display your time entries in a colorful table, optionally filtered by a
+predefined period or a custom date window.
+
+Ranges: today, yesterday, this-week (week), last-week, this-month (month),
+last-month, 7d, 30d, 90d, all.
+
+Filtering matches an entry's *start* time, so an entry that began before the
+window but ran into it will not be listed.
 
 Examples:
-  clockify list
-  clockify list -n 10`,
+  clockify list                                # recent 5
+  clockify list --range last-week
+  clockify list --range today -n 20
+  clockify list --from 2026-10-01 --to 2026-10-07
+  clockify list --from "2026-10-01 09:00"
+  clockify list --range 30d`,
 	Args: cobra.NoArgs,
 	RunE: runList,
 }
 
 func init() {
 	listCmd.Flags().IntVarP(&listFlags.count, "count", "n", 5, "how many entries to show")
+	listCmd.Flags().StringVar(&listFlags.rangeName, "range", "", "filter by period: today, yesterday, this-week, last-week, this-month, last-month, 7d, 30d, 90d, all")
+	listCmd.Flags().StringVar(&listFlags.from, "from", "", `custom window start ("2026-10-01", "2026-10-01 09:00", or RFC3339)`)
+	listCmd.Flags().StringVar(&listFlags.to, "to", "", "custom window end (same formats; defaults to now)")
+
+	_ = listCmd.RegisterFlagCompletionFunc("range", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return canonicalRangeNames(), cobra.ShellCompDirectiveNoFileComp
+	})
 }
 
 func runList(cmd *cobra.Command, _ []string) error {
@@ -38,11 +60,23 @@ func runList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+
+	// Optional date filtering (--range or --from/--to).
+	timeRange, err := resolveRange(listFlags.rangeName, listFlags.from, listFlags.to, time.Now())
+	if err != nil {
+		return err
+	}
+
 	count := listFlags.count
 	if count < 1 {
 		count = 1
 	}
 	if count > 50 {
+		count = 50
+	}
+	// A filtered view is usually a report rather than a quick peek, so show a
+	// full page unless the user asked for a specific count.
+	if timeRange != nil && !cmd.Flags().Changed("count") {
 		count = 50
 	}
 
@@ -52,17 +86,30 @@ func runList(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
-		entries, err = client.GetTimeEntries(ctx, workspaceID, user.ID, clockify.TimeEntryListParams{
+		params := clockify.TimeEntryListParams{
 			Page:     1,
 			PageSize: count,
 			Hydrated: true, // embed project names instead of bare IDs
-		})
+		}
+		if timeRange != nil {
+			if timeRange.hasStart() {
+				params.Start = clockify.Ptr(timeRange.start)
+			}
+			if timeRange.hasEnd() {
+				params.End = clockify.Ptr(timeRange.end)
+			}
+		}
+		entries, err = client.GetTimeEntries(ctx, workspaceID, user.ID, params)
 		return err
 	}); err != nil {
 		return err
 	}
 	if len(entries) == 0 {
-		printWarn("No time entries yet")
+		if timeRange != nil && timeRange.label != "" {
+			printWarn("No time entries %s", strings.ToLower(timeRange.label))
+		} else {
+			printWarn("No time entries yet")
+		}
 		return nil
 	}
 
@@ -104,7 +151,15 @@ func runList(cmd *cobra.Command, _ []string) error {
 		rows = append(rows, []string{desc, project, startStr, endStr, durStr})
 	}
 
-	fmt.Println(accentStyle.Render(fmt.Sprintf("Last %d time entries", len(rows))))
+	if timeRange != nil && timeRange.label != "" {
+		noun := "entries"
+		if len(rows) == 1 {
+			noun = "entry"
+		}
+		fmt.Println(accentStyle.Render(fmt.Sprintf("%s · %d %s", timeRange.label, len(rows), noun)))
+	} else {
+		fmt.Println(accentStyle.Render(fmt.Sprintf("Last %d time entries", len(rows))))
+	}
 	fmt.Println()
 	fmt.Println(renderTable([]string{"DESCRIPTION", "PROJECT", "START", "END", "DURATION"}, rows))
 	return nil
