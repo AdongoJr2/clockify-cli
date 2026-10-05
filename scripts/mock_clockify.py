@@ -97,7 +97,7 @@ class Handler(BaseHTTPRequestHandler):
                 items = [e for e in items if (e.get("timeInterval") or {}).get("start", "") >= start]
             if end:
                 items = [e for e in items if (e.get("timeInterval") or {}).get("start", "") <= end]
-            self._send(items)
+            self._send([self._entry_view(e) for e in items])
         else:
             self._send({"message": f"no mock for GET {path}"}, 404)
 
@@ -112,11 +112,26 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.end_headers()
 
+    def _entry_view(self, entry):
+        """Attach the project name so lists look like the real hydrated API."""
+        view = dict(entry)
+        pid = view.get("projectId")
+        if pid and not view.get("project"):
+            project = next((p for p in PROJECTS if p["id"] == pid), None)
+            if project:
+                view["project"] = {"id": project["id"], "name": project["name"]}
+        return view
+
     def do_POST(self):
         global _next_id
         body = self._body()
         if self.path.endswith("/time-entries"):
-            entry = {"id": f"e-mock-{_next_id}", "description": body.get("description", ""),
+            desc = body.get("description", "")
+            # Failure injection for demos: descriptions containing "fail" are rejected.
+            if "fail" in desc.lower():
+                self._send({"message": "entry rejected by mock"}, 400)
+                return
+            entry = {"id": f"e-mock-{_next_id}", "description": desc,
                      "billable": body.get("billable", True),
                      "timeInterval": {"start": body.get("start"), "end": body.get("end")}}
             _next_id += 1
@@ -126,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
             if not body.get("end"):  # timer started → mark as running
                 RUNNING.clear()
                 RUNNING.append({**entry, "userId": USER["id"]})
-            self._send(entry, 201)
+            self._send(self._entry_view(entry), 201)
         else:
             self._send({"message": f"no mock for POST {self.path}"}, 404)
 

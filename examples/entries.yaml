@@ -1,0 +1,32 @@
+# Example batch file for: clockify log --batch examples/entries.yaml
+#
+# Every entry is validated BEFORE any request is sent, so typos or bad times
+# fail fast without logging half a file. Try it safely first:
+#
+#   clockify log --batch examples/entries.yaml --dry-run
+
+# Optional: applied to entries that don't specify their own project.
+default-project: Website Redesign
+
+entries:
+  # Time-only values mean "today"; durations and explicit end times both work.
+  - description: Standup & planning
+    start: "09:30"
+    duration: 15m
+
+  - description: Deep work — API client
+    start: "2026-10-05 10:00"
+    end: "12:30"
+    project: Backend API
+    billable: false
+
+  # Full timestamps with an offset are accepted too.
+  - description: Design review
+    start: "2026-10-05T14:00:00+02:00"
+    duration: 1h30m
+
+  # No project key and no default-project → logged without a project.
+  - description: Reading / research
+    start: "16:00"
+    end: "17:00"
+    project: ""

@@ -86,6 +86,46 @@ clockify delete --yes -d "..."    # no prompt (scripts/CI)
 clockify delete                   # pick from recent entries
 ```
 
+### Batch logging (YAML)
+
+Log many entries at once from a YAML file — Clockify's API has no batch-create
+endpoint, so this posts one request per entry with bounded concurrency:
+
+```bash
+clockify log --batch entries.yaml              # validate everything, then log
+clockify log --batch entries.yaml --dry-run    # validate + print the plan, send nothing
+clockify log --batch - < entries.yaml          # read from stdin
+```
+
+```yaml
+default-project: Website Redesign   # optional; used by entries without a project
+entries:
+  - description: Standup
+    start: "09:30"                 # "14:00", "2026-10-05 14:00", or RFC3339
+    duration: 15m                   # ... or end: "09:45" (never both)
+    project: Backend API            # optional; project name or ID
+    billable: false                 # optional; omit to use the project default
+```
+
+A ready-to-edit example lives in [`examples/entries.yaml`](examples/entries.yaml).
+
+**Validation happens first — nothing is sent if anything is wrong:**
+
+- All problems are reported together, numbered by entry
+  (`entry 3 ("Deep work"): description is required`)
+- Unknown/misspelled keys are rejected (catches `duraton:` typos)
+- Each entry needs a description, a start, and exactly one of end/duration
+- Project names are resolved **before** the first write; an unknown project aborts
+  the whole batch ("no entries were logged")
+- `--dry-run` needs no API credentials at all — it just validates and prints a plan
+
+**Execution:**
+
+- `--concurrency N` (default 3, max 10) controls parallelism
+- Failures don't abort the batch: every entry is attempted, then failures are
+  listed individually and the command exits non-zero if any failed
+- Cost is one request per entry (Free plan: 30/hour, so batches are budget-aware)
+
 ### Filtering by date range
 
 `clockify list` can filter entries by a predefined period or a custom window:

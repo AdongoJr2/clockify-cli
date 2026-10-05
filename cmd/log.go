@@ -21,6 +21,9 @@ type logInput struct {
 	duration    string
 	project     string
 	billable    bool
+	batch       string
+	dryRun      bool
+	concurrency int
 }
 
 var logFlags logInput
@@ -36,7 +39,9 @@ interactive form. Times are interpreted in your local timezone and stored in UTC
 Examples:
   clockify log -d "Standup" --start "09:30" --duration 15m
   clockify log -d "Deep work" --start "2026-10-05 14:00" --end "16:00" -p "Website Redesign"
-  clockify log                                 # interactive form`,
+  clockify log                                 # interactive form
+  clockify log --batch entries.yaml            # many entries from YAML (validated first)
+  clockify log --batch entries.yaml --dry-run  # validate and show the plan, send nothing`,
 	Args: cobra.NoArgs,
 	RunE: runLog,
 }
@@ -48,10 +53,31 @@ func init() {
 	logCmd.Flags().StringVar(&logFlags.duration, "duration", "", `duration instead of end time (e.g. "1h30m")`)
 	logCmd.Flags().StringVarP(&logFlags.project, "project", "p", "", "project name or ID (optional)")
 	logCmd.Flags().BoolVar(&logFlags.billable, "billable", true, "mark the entry as billable")
+	logCmd.Flags().StringVar(&logFlags.batch, "batch", "", `log many entries from a YAML file ("-" for stdin)`)
+	logCmd.Flags().BoolVar(&logFlags.dryRun, "dry-run", false, "with --batch: validate and print the plan without calling the API")
+	logCmd.Flags().IntVar(&logFlags.concurrency, "concurrency", 3, "with --batch: parallel requests (1-10)")
 }
 
 func runLog(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
+
+	// Batch mode: a YAML file of entries, fully validated before any request.
+	if batchPath := strings.TrimSpace(logFlags.batch); batchPath != "" {
+		var conflicting []string
+		for _, name := range []string{"description", "start", "end", "duration", "project", "billable"} {
+			if cmd.Flags().Changed(name) {
+				conflicting = append(conflicting, "--"+name)
+			}
+		}
+		if len(conflicting) > 0 {
+			return fmt.Errorf("--batch cannot be combined with %s", strings.Join(conflicting, ", "))
+		}
+		return runBatch(cmd, batchPath)
+	}
+	if cmd.Flags().Changed("dry-run") {
+		return errors.New("--dry-run only applies to --batch")
+	}
+
 	workspaceID, err := requireWorkspaceID()
 	if err != nil {
 		return err

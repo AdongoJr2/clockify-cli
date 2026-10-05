@@ -83,6 +83,39 @@ func (m *mockClockify) find(method, pathSuffix string) (mockRequest, bool) {
 	return mockRequest{}, false
 }
 
+// countRequests returns how many requests of the given method were recorded.
+func (m *mockClockify) countRequests(method string) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, req := range m.requests {
+		if req.Method == method {
+			n++
+		}
+	}
+	return n
+}
+
+// findByDescription returns the first recorded request whose JSON body carries
+// the given description — needed because batch entries are posted concurrently.
+func (m *mockClockify) findByDescription(method, description string) (mockRequest, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, req := range m.requests {
+		if req.Method != method || req.Body == "" {
+			continue
+		}
+		var body map[string]any
+		if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+			continue
+		}
+		if body["description"] == description {
+			return req, true
+		}
+	}
+	return mockRequest{}, false
+}
+
 func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 	raw, _ := io.ReadAll(r.Body)
 
@@ -127,6 +160,14 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries"):
 		writeJSON(entries, 200)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/time-entries"):
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		// Failure injection: descriptions containing "fail" are rejected, so
+		// tests can exercise partial-failure reporting.
+		if desc, _ := body["description"].(string); strings.Contains(strings.ToLower(desc), "fail") {
+			writeJSON(map[string]any{"message": "entry rejected by mock"}, 400)
+			return
+		}
 		writeJSON(map[string]any{"id": "e4"}, 201)
 	case r.Method == http.MethodPatch && strings.Contains(path, "/user/"):
 		writeJSON(map[string]any{"id": "e3"}, 200)
