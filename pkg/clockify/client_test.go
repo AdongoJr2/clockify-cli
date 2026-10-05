@@ -250,7 +250,7 @@ func TestGetProjectsFollowsPagination(t *testing.T) {
 	}))
 	defer server.Close()
 
-	projects, err := NewClient(server.URL, "k").GetProjects(context.Background(), "w1")
+	projects, err := NewClient(server.URL, "k").GetProjects(context.Background(), "w1", ProjectListParams{})
 	if err != nil {
 		t.Fatalf("GetProjects: %v", err)
 	}
@@ -262,6 +262,43 @@ func TestGetProjectsFollowsPagination(t *testing.T) {
 	}
 }
 
+func TestGetProjectsSendsFilters(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/workspaces/w1/projects" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("name") != "Web" {
+			t.Errorf("name = %q, want Web", q.Get("name"))
+		}
+		if q.Get("strict-name-search") != "true" {
+			t.Errorf("strict-name-search = %q, want true", q.Get("strict-name-search"))
+		}
+		if q.Get("archived") != "true" {
+			t.Errorf("archived = %q, want true", q.Get("archived"))
+		}
+		if q.Get("page-size") != "25" {
+			t.Errorf("page-size = %q, want 25", q.Get("page-size"))
+		}
+		_, _ = w.Write([]byte(`[{"id":"p3","name":"Old Website","archived":true}]`))
+	}))
+	defer server.Close()
+
+	projects, err := NewClient(server.URL, "k").GetProjects(context.Background(), "w1", ProjectListParams{
+		Name:             "Web",
+		StrictNameSearch: true,
+		Archived:         Ptr(true),
+		PageSize:         25,
+	})
+	if err != nil {
+		t.Fatalf("GetProjects: %v", err)
+	}
+	if len(projects) != 1 || !projects[0].Archived || projects[0].ID != "p3" {
+		t.Errorf("unexpected projects: %+v", projects)
+	}
+}
 func TestGetTimeEntriesQueryParams(t *testing.T) {
 	t.Parallel()
 

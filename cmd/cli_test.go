@@ -70,9 +70,13 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 	return string(data), runErr
 }
 
-// runCLI executes the root command with args, returning captured stdout and error.
+// runCLI executes the root command with args, returning captured stdout and
+// error. Flags are reset first so repeated invocations (like consecutive runs
+// in one test) never leak state into each other — in production each process
+// executes exactly once.
 func runCLI(t *testing.T, args ...string) (string, error) {
 	t.Helper()
+	resetFlags(rootCmd)
 	rootCmd.SetOut(io.Discard)
 	rootCmd.SetErr(io.Discard)
 	rootCmd.SetArgs(args)
@@ -499,6 +503,124 @@ func TestDeleteNoMatchingDescription(t *testing.T) {
 	}
 	if _, ok := mock.find(http.MethodDelete, ""); ok {
 		t.Error("no DELETE should be sent when nothing matches")
+	}
+}
+
+func TestProjectsEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "projects")
+	if err != nil {
+		t.Fatalf("projects: %v", err)
+	}
+	for _, want := range []string{"3 projects", "Website Redesign", "Backend API", "Old Website", "archived"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestProjectsActiveFlag(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "projects", "--active")
+	if err != nil {
+		t.Fatalf("projects --active: %v", err)
+	}
+	if !strings.Contains(out, "2 projects") {
+		t.Errorf("expected 2 active projects:\n%s", out)
+	}
+	if strings.Contains(out, "Old Website") {
+		t.Errorf("archived project must be hidden:\n%s", out)
+	}
+}
+
+func TestProjectsArchivedFlag(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "projects", "--archived")
+	if err != nil {
+		t.Fatalf("projects --archived: %v", err)
+	}
+	if !strings.Contains(out, "Old Website") || !strings.Contains(out, "1 project") {
+		t.Errorf("expected only the archived project:\n%s", out)
+	}
+	if strings.Contains(out, "Backend API") {
+		t.Errorf("active projects must be excluded:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodGet, "/projects")
+	if !ok {
+		t.Fatal("no GET /projects recorded")
+	}
+	if !strings.Contains(req.Query, "archived=true") {
+		t.Errorf("query should carry archived=true: %q", req.Query)
+	}
+}
+
+func TestProjectsNameFilter(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "projects", "-p", "Backend", "--exact")
+	if err != nil {
+		t.Fatalf("projects -p: %v", err)
+	}
+	if !strings.Contains(out, "Backend API") {
+		t.Errorf("expected the filtered project:\n%s", out)
+	}
+	if strings.Contains(out, "Website Redesign") {
+		t.Errorf("server-side filter should exclude others:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodGet, "/projects")
+	if !ok {
+		t.Fatal("no GET /projects recorded")
+	}
+	if !strings.Contains(req.Query, "name=Backend") || !strings.Contains(req.Query, "strict-name-search=true") {
+		t.Errorf("query should carry name filter + strict flag: %q", req.Query)
+	}
+}
+
+func TestProjectsFlagConflicts(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	if _, err := runCLI(t, "projects", "--archived", "--active"); err == nil ||
+		!strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("err = %v, want 'mutually exclusive'", err)
+	}
+	if _, err := runCLI(t, "projects", "--exact"); err == nil ||
+		!strings.Contains(err.Error(), "needs --project") {
+		t.Errorf("err = %v, want 'needs --project'", err)
+	}
+}
+
+func TestProjectsEmptyWarning(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "projects", "-p", "Nothing matches this name")
+	if err != nil {
+		t.Fatalf("projects: %v", err)
+	}
+	if !strings.Contains(out, "No projects found") {
+		t.Errorf("expected empty warning:\n%s", out)
+	}
+}
+
+func TestActiveOnlyHelper(t *testing.T) {
+	in := []clockify.Project{
+		{ID: "p1", Name: "A"},
+		{ID: "p2", Name: "B", Archived: true},
+		{ID: "p3", Name: "C"},
+	}
+	got := activeOnly(in)
+	if len(got) != 2 || got[0].ID != "p1" || got[1].ID != "p3" {
+		t.Errorf("activeOnly = %v, want [p1 p3]", got)
 	}
 }
 

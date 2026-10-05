@@ -137,10 +137,27 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 	case r.Method == http.MethodGet && path == "/workspaces":
 		writeJSON([]map[string]any{{"id": "w1", "name": "My Workspace"}}, 200)
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/projects"):
-		writeJSON([]map[string]any{
+		items := []map[string]any{
 			{"id": "p1", "name": "Website Redesign", "billable": true},
 			{"id": "p2", "name": "Backend API", "billable": true},
-		}, 200)
+			{"id": "p3", "name": "Old Website", "billable": false, "archived": true},
+		}
+		// Mirror the real API: ?name= is a substring filter, ?archived=true
+		// returns archived projects only.
+		q := r.URL.Query()
+		var out []map[string]any
+		for _, it := range items {
+			if name := q.Get("name"); name != "" &&
+				!strings.Contains(strings.ToLower(it["name"].(string)), strings.ToLower(name)) {
+				continue
+			}
+			isArch, _ := it["archived"].(bool)
+			if q.Get("archived") == "true" && !isArch {
+				continue
+			}
+			out = append(out, it)
+		}
+		writeJSON(out, 200)
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/time-entries/status/in-progress"):
 		writeJSON(running, 200)
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries/"):

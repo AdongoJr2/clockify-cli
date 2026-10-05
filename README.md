@@ -117,6 +117,12 @@ clockify update <entry-id> --start "09:00" --end "11:00"
 clockify update <entry-id> --start "14:00" --duration 2h -p "Backend API"
 clockify update                 # pick a recent entry, edit via interactive form
 
+clockify projects                          # active + archived projects
+clockify projects --active                 # hide archived
+clockify projects --archived               # archived only
+clockify projects -p "Website"             # server-side name filter
+clockify projects -p "Website" --exact     # exact name match
+
 clockify delete -d "Testing..."  # find by description, then confirm
 clockify delete <entry-id>        # by ID, with confirmation
 clockify delete --yes -d "..."    # no prompt (scripts/CI)
@@ -184,6 +190,26 @@ clockify list --range last-week -n 10        # combine with -n
   pass `-n` to cap it.
 - With shell completion enabled (`clockify completion bash`), `--range`
   suggests the valid presets.
+
+### Projects
+
+`clockify projects` lists the workspace's projects (name, ID, active/archived
+status, billable) — useful for seeing what's available before `log`ging or
+`start`ing against one:
+
+```bash
+clockify projects                          # active + archived
+clockify projects --active                 # hide archived
+clockify projects --archived               # archived only
+clockify projects -p "Website"             # server-side substring filter
+clockify projects -p "Website" --exact    # exact-name match
+clockify projects --active -n 5
+```
+
+Only `--archived` filters server-side; `--active` is screened client-side
+(the Clockify API has no "active only" filter). `-p` runs the same
+server-side name search you can rely on when picking projects by name —
+use `--exact` when you need an unambiguous match.
 
 ### Deleting entries
 

@@ -26,6 +26,7 @@ WORKSPACES = [{"id": "w1", "name": "My Workspace"}]
 PROJECTS = [
     {"id": "p1", "name": "Website Redesign", "billable": True},
     {"id": "p2", "name": "Backend API", "billable": True},
+    {"id": "p3", "name": "Old Website", "billable": False, "archived": True},
 ]
 ENTRIES = [
     {
@@ -77,7 +78,16 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/workspaces":
             self._send(WORKSPACES)
         elif path.endswith("/projects"):
-            self._send(PROJECTS)
+            # Mirror the real API: ?name= is a substring filter,
+            # ?archived=true returns archived projects only.
+            params = parse_qs(urlparse(self.path).query)
+            out = list(PROJECTS)
+            if params.get("name"):
+                needle = params["name"][0].lower()
+                out = [p for p in out if needle in p["name"].lower()]
+            if params.get("archived") == ["true"]:
+                out = [p for p in out if p.get("archived")]
+            self._send(out)
         elif path.endswith("/time-entries/status/in-progress"):
             self._send(RUNNING)
         elif "/time-entries/" in path:  # single entry: .../time-entries/{id}

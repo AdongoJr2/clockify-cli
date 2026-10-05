@@ -138,3 +138,15 @@ type TimeEntryListParams struct {
 	Start    *time.Time // only entries starting at/after this time (UTC on the wire)
 	End      *time.Time // only entries starting at/before this time (UTC on the wire)
 }
+
+// ProjectListParams are query options for GetProjects.
+type ProjectListParams struct {
+	Name string // server-side substring filter on the project name; "" = no filter
+	// StrictNameSearch makes Name an exact-match filter (ignored without Name).
+	StrictNameSearch bool
+	// Archived, when set to true, returns only archived projects. There is no
+	// server-side "active only" filter: leave it nil (both are returned) and
+	// drop archived entries client-side if you need active ones.
+	Archived *bool
+	PageSize int // per page; default 100
+}

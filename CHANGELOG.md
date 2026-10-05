@@ -10,6 +10,16 @@ concise and user-facing.
 
 ## [Unreleased]
 
+### Added
+
+- `clockify projects`: list workspace projects (name, ID, active/archived
+  status, billable) with `--active`, `--archived`, `-p/--project` (server-side
+  substring search), `--exact`, and `-n/--count`.
+- Client: `ProjectListParams` (name, strict search, archived-only, page size)
+  wired into `GetProjects`.
+- Pickers and the project cache now only offer active projects (the API has no
+  active-only filter, so this is screened client-side).
+
 ### Fixed
 
 - Release workflow: check out the repository before creating the release, so

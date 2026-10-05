@@ -122,18 +122,36 @@ func getCachedUser(ctx context.Context, client *clockify.Client, apiKey string) 
 func getCachedProjects(ctx context.Context, client *clockify.Client, apiKey, workspaceID string) ([]clockify.Project, error) {
 	path, err := cachePath()
 	if err != nil {
-		return client.GetProjects(ctx, workspaceID)
+		projects, err := client.GetProjects(ctx, workspaceID, clockify.ProjectListParams{})
+		if err != nil {
+			return nil, err
+		}
+		return activeOnly(projects), nil
 	}
 	cf := loadCache(path, apiKey)
 	if entry, ok := cf.Projects[workspaceID]; ok && time.Since(entry.FetchedAt) < projectCacheTTL {
 		return entry.Items, nil
 	}
 
-	projects, err := client.GetProjects(ctx, workspaceID)
+	projects, err := client.GetProjects(ctx, workspaceID, clockify.ProjectListParams{})
 	if err != nil {
 		return nil, err
 	}
+	// Pickers only offer active projects (the API has no "active only"
+	// filter), so store the already-filtered list in the cache.
+	projects = activeOnly(projects)
 	cf.Projects[workspaceID] = cachedProjects{FetchedAt: time.Now(), Items: projects}
 	saveCache(path, cf)
 	return projects, nil
+}
+
+// activeOnly drops archived projects from a list.
+func activeOnly(projects []clockify.Project) []clockify.Project {
+	active := make([]clockify.Project, 0, len(projects))
+	for _, p := range projects {
+		if !p.Archived {
+			active = append(active, p)
+		}
+	}
+	return active
 }

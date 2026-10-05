@@ -155,15 +155,27 @@ func (c *Client) GetWorkspaces(ctx context.Context) ([]Workspace, error) {
 	return workspaces, nil
 }
 
-// GetProjects lists active projects on a workspace, following pagination
-// (100 per page, up to 50 pages as a safety bound).
-func (c *Client) GetProjects(ctx context.Context, workspaceID string) ([]Project, error) {
-	const pageSize = 100
+// GetProjects lists projects on a workspace, following pagination
+// (up to 50 pages as a safety bound).
+func (c *Client) GetProjects(ctx context.Context, workspaceID string, params ProjectListParams) ([]Project, error) {
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
 	var all []Project
 	for page := 1; page <= 50; page++ {
 		query := url.Values{
 			"page":      {strconv.Itoa(page)},
 			"page-size": {strconv.Itoa(pageSize)},
+		}
+		if params.Name != "" {
+			query.Set("name", params.Name)
+		}
+		if params.StrictNameSearch {
+			query.Set("strict-name-search", "true")
+		}
+		if params.Archived != nil {
+			query.Set("archived", strconv.FormatBool(*params.Archived))
 		}
 		var batch []Project
 		path := "/workspaces/" + url.PathEscape(workspaceID) + "/projects"
