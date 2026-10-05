@@ -78,6 +78,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(PROJECTS)
         elif path.endswith("/time-entries/status/in-progress"):
             self._send(RUNNING)
+        elif "/time-entries/" in path:  # single entry: .../time-entries/{id}
+            self._send(ENTRIES[0])
         elif "/time-entries" in path:
             self._send(ENTRIES)
         else:
@@ -104,7 +106,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send(stopped)
 
     def do_PUT(self):
-        self._send({"id": "e-updated", "description": self._body().get("description", "")})
+        body = self._body()
+        entry = {**ENTRIES[0], "description": body.get("description", ENTRIES[0]["description"])}
+        ti = dict(ENTRIES[0]["timeInterval"])
+        if body.get("start"):
+            ti["start"] = body["start"]
+        if "end" in body:
+            ti["end"] = body["end"]
+        entry["timeInterval"] = ti
+        ENTRIES[0] = entry
+        self._send(entry)
 
 
 if __name__ == "__main__":

@@ -95,13 +95,17 @@ func runLog(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	if _, err := client.CreateTimeEntry(ctx, workspaceID, clockify.CreateTimeEntryRequest{
-		Description: in.description,
-		Start:       clockify.Ptr(start),
-		End:         clockify.Ptr(end),
-		ProjectID:   projectID,
-		Billable:    clockify.Ptr(in.billable),
-	}); err != nil {
+	err = runWithSpinner("Saving time entry…", func() error {
+		_, err := client.CreateTimeEntry(ctx, workspaceID, clockify.CreateTimeEntryRequest{
+			Description: in.description,
+			Start:       clockify.Ptr(start),
+			End:         clockify.Ptr(end),
+			ProjectID:   projectID,
+			Billable:    clockify.Ptr(in.billable),
+		})
+		return err
+	})
+	if err != nil {
 		return err
 	}
 

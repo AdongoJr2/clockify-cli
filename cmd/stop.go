@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/AdongoJr2/clockify-cli/pkg/clockify"
 	"github.com/spf13/cobra"
 )
 
@@ -33,8 +34,12 @@ func runStop(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	running, err := runningEntry(ctx, client, workspaceID, user.ID)
-	if err != nil {
+	var running *clockify.TimeEntry
+	if err := runWithSpinner("Checking for a running timer…", func() error {
+		var err error
+		running, err = runningEntry(ctx, client, workspaceID, user.ID)
+		return err
+	}); err != nil {
 		return err
 	}
 	if running == nil {
@@ -43,7 +48,10 @@ func runStop(cmd *cobra.Command, _ []string) error {
 	}
 
 	now := time.Now()
-	if _, err := client.StopTimer(ctx, workspaceID, user.ID, now); err != nil {
+	if err := runWithSpinner("Stopping timer…", func() error {
+		_, err := client.StopTimer(ctx, workspaceID, user.ID, now)
+		return err
+	}); err != nil {
 		return err
 	}
 

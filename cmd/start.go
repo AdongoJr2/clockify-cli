@@ -67,8 +67,12 @@ func runStart(cmd *cobra.Command, _ []string) error {
 	}
 
 	// A running timer must be handled before starting the new one.
-	running, err := runningEntry(ctx, client, workspaceID, user.ID)
-	if err != nil {
+	var running *clockify.TimeEntry
+	if err := runWithSpinner("Checking for a running timer…", func() error {
+		var err error
+		running, err = runningEntry(ctx, client, workspaceID, user.ID)
+		return err
+	}); err != nil {
 		return err
 	}
 	if running != nil {
@@ -79,21 +83,26 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		if !stopFirst {
 			return nil // user cancelled
 		}
-		if _, err := client.StopTimer(ctx, workspaceID, user.ID, time.Now()); err != nil {
-			return fmt.Errorf("stop previous timer: %w", err)
+	}
+
+	err = runWithSpinner("Starting timer…", func() error {
+		if running != nil {
+			if _, err := client.StopTimer(ctx, workspaceID, user.ID, time.Now()); err != nil {
+				return fmt.Errorf("stop previous timer: %w", err)
+			}
 		}
-	}
-
-	projectID, err := resolveProject(ctx, client, workspaceID, projectRef)
-	if err != nil {
+		projectID, err := resolveProject(ctx, client, workspaceID, projectRef)
+		if err != nil {
+			return err
+		}
+		_, err = client.CreateTimeEntry(ctx, workspaceID, clockify.CreateTimeEntryRequest{
+			Description: description,
+			Start:       clockify.Ptr(time.Now()),
+			ProjectID:   projectID,
+		})
 		return err
-	}
-
-	if _, err := client.CreateTimeEntry(ctx, workspaceID, clockify.CreateTimeEntryRequest{
-		Description: description,
-		Start:       clockify.Ptr(time.Now()),
-		ProjectID:   projectID,
-	}); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 

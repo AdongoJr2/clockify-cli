@@ -239,6 +239,16 @@ func (c *Client) StopTimer(ctx context.Context, workspaceID, userID string, end 
 	return &entry, nil
 }
 
+// GetTimeEntry fetches a single time entry by ID.
+func (c *Client) GetTimeEntry(ctx context.Context, workspaceID, entryID string) (*TimeEntry, error) {
+	path := fmt.Sprintf("/workspaces/%s/time-entries/%s", url.PathEscape(workspaceID), url.PathEscape(entryID))
+	var entry TimeEntry
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &entry); err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}
+
 // UpdateTimeEntry edits an existing entry (PUT — note PATCH is reserved for
 // stopping a running timer). Start is required by the API. Timestamps are
 // normalized to UTC before sending.

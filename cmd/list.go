@@ -38,11 +38,6 @@ func runList(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	user, err := currentUser(ctx, client)
-	if err != nil {
-		return err
-	}
-
 	count := listFlags.count
 	if count < 1 {
 		count = 1
@@ -51,12 +46,19 @@ func runList(cmd *cobra.Command, _ []string) error {
 		count = 50
 	}
 
-	entries, err := client.GetTimeEntries(ctx, workspaceID, user.ID, clockify.TimeEntryListParams{
-		Page:     1,
-		PageSize: count,
-		Hydrated: true, // embed project names instead of bare IDs
-	})
-	if err != nil {
+	var entries []clockify.TimeEntry
+	if err := runWithSpinner("Fetching time entries…", func() error {
+		user, err := currentUser(ctx, client)
+		if err != nil {
+			return err
+		}
+		entries, err = client.GetTimeEntries(ctx, workspaceID, user.ID, clockify.TimeEntryListParams{
+			Page:     1,
+			PageSize: count,
+			Hydrated: true, // embed project names instead of bare IDs
+		})
+		return err
+	}); err != nil {
 		return err
 	}
 	if len(entries) == 0 {

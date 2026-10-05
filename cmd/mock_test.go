@@ -103,6 +103,15 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 		}, 200)
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/time-entries/status/in-progress"):
 		writeJSON(running, 200)
+	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries/"):
+		// Single entry: /workspaces/{ws}/time-entries/{id}
+		if path != "/workspaces/w1/time-entries/e1" {
+			writeJSON(map[string]any{"message": "time entry not found"}, 404)
+			return
+		}
+		writeJSON(entries[0], 200)
+	case r.Method == http.MethodPut && strings.Contains(path, "/time-entries/"):
+		writeJSON(map[string]any{"id": "e1"}, 200)
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries"):
 		writeJSON(entries, 200)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/time-entries"):

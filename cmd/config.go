@@ -65,8 +65,12 @@ func runConfigInit(ctx context.Context) error {
 
 	// 2. Validate the key before saving anything.
 	client := clockify.NewClient(viper.GetString("base_url"), apiKey)
-	user, err := client.GetUser(ctx)
-	if err != nil {
+	var user *clockify.User
+	if err := runWithSpinner("Validating API key…", func() error {
+		var err error
+		user, err = client.GetUser(ctx)
+		return err
+	}); err != nil {
 		return fmt.Errorf("API key validation failed: %w", err)
 	}
 
@@ -105,7 +109,12 @@ func runConfigInit(ctx context.Context) error {
 // pickWorkspace lets the user select a workspace, falling back to manual ID
 // entry when the workspace list cannot be fetched.
 func pickWorkspace(ctx context.Context, client *clockify.Client) (string, error) {
-	workspaces, err := client.GetWorkspaces(ctx)
+	var workspaces []clockify.Workspace
+	err := runWithSpinner("Loading workspaces…", func() error {
+		var err error
+		workspaces, err = client.GetWorkspaces(ctx)
+		return err
+	})
 	if err == nil && len(workspaces) > 0 {
 		options := make([]huh.Option[clockify.Workspace], 0, len(workspaces))
 		for _, w := range workspaces {

@@ -300,3 +300,106 @@ func TestNewClientRequiresAPIKey(t *testing.T) {
 		t.Fatalf("err = %v, want 'API key not configured'", err)
 	}
 }
+
+func TestUpdateEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "update", "e1", "-d", "Deep work v2")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "Updated entry") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+
+	if _, ok := mock.find(http.MethodGet, "/time-entries/e1"); !ok {
+		t.Error("must fetch the existing entry before updating")
+	}
+	req, ok := mock.find(http.MethodPut, "/time-entries/e1")
+	if !ok {
+		t.Fatal("no PUT /workspaces/w1/time-entries/e1 recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["description"] != "Deep work v2" {
+		t.Errorf("description = %v, want 'Deep work v2'", body["description"])
+	}
+	// Unchanged fields must be preserved from the existing entry.
+	if body["start"] != "2026-10-05T09:00:00Z" {
+		t.Errorf("start = %v, want unchanged 2026-10-05T09:00:00Z", body["start"])
+	}
+	if body["end"] != "2026-10-05T10:30:00Z" {
+		t.Errorf("end = %v, want unchanged 2026-10-05T10:30:00Z", body["end"])
+	}
+	if body["billable"] != true {
+		t.Errorf("billable = %v, want preserved true", body["billable"])
+	}
+}
+
+func TestUpdateTimesEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "update", "e1", "--start", "2026-10-05 09:15", "--duration", "1h")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "1h") {
+		t.Errorf("output should mention new duration:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodPut, "/time-entries/e1")
+	if !ok {
+		t.Fatal("no PUT recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	start, err := time.Parse(time.RFC3339, body["start"].(string))
+	if err != nil {
+		t.Fatalf("parse start: %v", err)
+	}
+	wantStart := time.Date(2026, 10, 5, 9, 15, 0, 0, time.Local).UTC()
+	if !start.Equal(wantStart) {
+		t.Errorf("start = %v, want %v", start, wantStart)
+	}
+	end, err := time.Parse(time.RFC3339, body["end"].(string))
+	if err != nil {
+		t.Fatalf("parse end: %v", err)
+	}
+	if end.Sub(start) != time.Hour {
+		t.Errorf("end-start = %v, want 1h", end.Sub(start))
+	}
+	// Description was not passed → must be preserved.
+	if body["description"] != "Deep work" {
+		t.Errorf("description = %v, want preserved 'Deep work'", body["description"])
+	}
+}
+
+func TestUpdateRequiresIDNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "update", "-d", "x")
+	if err == nil || !strings.Contains(err.Error(), "entry ID required") {
+		t.Fatalf("err = %v, want 'entry ID required'", err)
+	}
+}
+
+func TestUpdateRequiresEditFlagsNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "update", "e1")
+	if err == nil || !strings.Contains(err.Error(), "provide at least one flag") {
+		t.Fatalf("err = %v, want 'provide at least one flag'", err)
+	}
+	if _, ok := mock.find(http.MethodPut, ""); ok {
+		t.Error("no PUT should be sent when nothing changed")
+	}
+}

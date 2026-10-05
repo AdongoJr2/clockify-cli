@@ -11,8 +11,10 @@ terminal.
 
 - 🕹️ Start/stop live timers from the command line
 - 📝 Log past entries via flags (scriptable) or an interactive form
+- ✏️ Update existing entries (description, times, project, billable)
 - 📋 Colorful, aligned table of your most recent entries
 - 🎨 Interactive prompts ([huh](https://github.com/charmbracelet/huh)) and styled output ([lipgloss](https://github.com/charmbracelet/lipgloss))
+- ⏳ Animated spinner while API requests are in flight (TTY only — pipes stay clean)
 - 🔐 API key stored locally with `0600` permissions — never hardcoded
 - ⚡ Disk-cached user/project lookups to stay within Free-plan rate limits
 
@@ -69,6 +71,11 @@ clockify log                    # interactive form (project picker by name)
 
 clockify list                   # last 5 entries
 clockify list -n 10             # last 10 entries
+
+clockify update <entry-id> -d "Renamed task"
+clockify update <entry-id> --start "09:00" --end "11:00"
+clockify update <entry-id> --start "14:00" --duration 2h -p "Backend API"
+clockify update                 # pick a recent entry, edit via interactive form
 ```
 
 ### Time formats
