@@ -53,22 +53,30 @@ func apiKeyHash(apiKey string) string {
 
 // loadCache reads the cache, returning an empty one when missing, corrupt,
 // or written with a different API key (so key rotation invalidates it).
+// The returned value always carries apiKey's hash so subsequent saves persist
+// a valid key binding.
 func loadCache(path, apiKey string) *cacheFile {
-	cf := &cacheFile{Projects: map[string]cachedProjects{}}
+	hash := apiKeyHash(apiKey)
+	fresh := func() *cacheFile {
+		return &cacheFile{APIKeyHash: hash, Projects: map[string]cachedProjects{}}
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return cf
+		return fresh()
 	}
-	if err := json.Unmarshal(data, cf); err != nil {
-		return &cacheFile{Projects: map[string]cachedProjects{}}
+	var parsed cacheFile
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return fresh()
 	}
-	if cf.APIKeyHash != apiKeyHash(apiKey) {
-		return &cacheFile{Projects: map[string]cachedProjects{}}
+	if parsed.APIKeyHash != hash {
+		return fresh()
 	}
-	if cf.Projects == nil {
-		cf.Projects = map[string]cachedProjects{}
+	if parsed.Projects == nil {
+		parsed.Projects = map[string]cachedProjects{}
 	}
-	return cf
+	parsed.APIKeyHash = hash
+	return &parsed
 }
 
 // saveCache persists the cache best-effort; failures are never fatal.

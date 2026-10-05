@@ -3,6 +3,7 @@ package clockify
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -150,5 +151,216 @@ func TestCreateTimeEntry(t *testing.T) {
 	}
 	if body["end"] != "2026-10-05T15:30:00Z" {
 		t.Errorf("end = %v, want UTC RFC3339", body["end"])
+	}
+}
+
+func TestCreateNormalizesOffsetTimesToUTC(t *testing.T) {
+	t.Parallel()
+
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"e5"}`))
+	}))
+	defer server.Close()
+
+	// 14:00 at +02:00 is 12:00 UTC.
+	loc := time.FixedZone("CEST", 2*3600)
+	start := time.Date(2026, 10, 5, 14, 0, 0, 0, loc)
+	req := CreateTimeEntryRequest{Start: Ptr(start)}
+	if _, err := NewClient(server.URL, "k").CreateTimeEntry(context.Background(), "w1", req); err != nil {
+		t.Fatalf("CreateTimeEntry: %v", err)
+	}
+	if body["start"] != "2026-10-05T12:00:00Z" {
+		t.Errorf("start = %v, want 2026-10-05T12:00:00Z", body["start"])
+	}
+}
+
+func TestUpdateTimeEntryUsesPut(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath string
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_, _ = w.Write([]byte(`{"id":"e9"}`))
+	}))
+	defer server.Close()
+
+	start := time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC)
+	entry, err := NewClient(server.URL, "k").UpdateTimeEntry(context.Background(), "w1", "e9", UpdateTimeEntryRequest{
+		Start:       Ptr(start),
+		Description: "updated",
+	})
+	if err != nil {
+		t.Fatalf("UpdateTimeEntry: %v", err)
+	}
+	if entry.ID != "e9" {
+		t.Errorf("entry.ID = %q, want e9", entry.ID)
+	}
+	if gotMethod != http.MethodPut {
+		t.Errorf("method = %s, want PUT (PATCH is reserved for stopping)", gotMethod)
+	}
+	if want := "/workspaces/w1/time-entries/e9"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+	if body["start"] != "2026-10-05T09:00:00Z" || body["description"] != "updated" {
+		t.Errorf("unexpected body: %v", body)
+	}
+}
+
+func TestGetWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/workspaces" {
+			t.Errorf("path = %q, want /workspaces", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"id":"w1","name":"Personal"},{"id":"w2","name":"Team"}]`))
+	}))
+	defer server.Close()
+
+	workspaces, err := NewClient(server.URL, "k").GetWorkspaces(context.Background())
+	if err != nil {
+		t.Fatalf("GetWorkspaces: %v", err)
+	}
+	if len(workspaces) != 2 || workspaces[0].Name != "Personal" {
+		t.Errorf("unexpected workspaces: %+v", workspaces)
+	}
+}
+
+func TestGetProjectsFollowsPagination(t *testing.T) {
+	t.Parallel()
+
+	var pages []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pages = append(pages, r.URL.Query().Get("page"))
+		count := 100
+		if r.URL.Query().Get("page") == "2" {
+			count = 3 // a short page ends pagination
+		}
+		items := make([]map[string]any, 0, count)
+		for i := 0; i < count; i++ {
+			items = append(items, map[string]any{"id": "p", "name": "Project"})
+		}
+		_ = json.NewEncoder(w).Encode(items)
+	}))
+	defer server.Close()
+
+	projects, err := NewClient(server.URL, "k").GetProjects(context.Background(), "w1")
+	if err != nil {
+		t.Fatalf("GetProjects: %v", err)
+	}
+	if len(projects) != 103 {
+		t.Errorf("len(projects) = %d, want 103", len(projects))
+	}
+	if len(pages) != 2 || pages[0] != "1" || pages[1] != "2" {
+		t.Errorf("pages = %v, want [1 2]", pages)
+	}
+}
+
+func TestGetTimeEntriesQueryParams(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/workspaces/w1/user/u1/time-entries" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		q := r.URL.Query()
+		if q.Get("page") != "1" || q.Get("page-size") != "5" || q.Get("hydrated") != "true" {
+			t.Errorf("query = %v, want page=1&page-size=5&hydrated=true", q)
+		}
+		_, _ = w.Write([]byte(`[
+			{"id":"e1","description":"Deep work",
+			 "timeInterval":{"start":"2026-10-05T09:00:00Z","end":"2026-10-05T10:30:00Z"}},
+			{"id":"e2","description":"Review",
+			 "project":{"id":"p1","name":"Website Redesign","clientName":"Acme"},
+			 "timeInterval":{"start":"2026-10-05T11:00:00Z","end":null}}
+		]`))
+	}))
+	defer server.Close()
+
+	entries, err := NewClient(server.URL, "k").GetTimeEntries(context.Background(), "w1", "u1", TimeEntryListParams{
+		Page: 1, PageSize: 5, Hydrated: true,
+	})
+	if err != nil {
+		t.Fatalf("GetTimeEntries: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("len(entries) = %d, want 2", len(entries))
+	}
+	if entries[0].IsRunning() {
+		t.Error("first entry should not be running")
+	}
+	if !entries[1].IsRunning() {
+		t.Error("second entry should be running")
+	}
+	if entries[1].Project == nil || entries[1].Project.Name != "Website Redesign" {
+		t.Errorf("hydrated project not decoded: %+v", entries[1].Project)
+	}
+	if entries[1].EffectiveProjectID() != "p1" {
+		t.Errorf("EffectiveProjectID = %q, want p1", entries[1].EffectiveProjectID())
+	}
+}
+
+func TestGetInProgress(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/workspaces/w1/time-entries/status/in-progress" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[{"id":"e7","description":"Pairing","userId":"u1",
+			"timeInterval":{"start":"2026-10-05T11:00:00Z","end":null}}]`))
+	}))
+	defer server.Close()
+
+	entries, err := NewClient(server.URL, "k").GetInProgress(context.Background(), "w1")
+	if err != nil {
+		t.Fatalf("GetInProgress: %v", err)
+	}
+	if len(entries) != 1 || !entries[0].IsRunning() {
+		t.Fatalf("unexpected entries: %+v", entries)
+	}
+}
+
+func TestErrorEnvelopeVariants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		status     int
+		body       string
+		wantMsg    string
+		wantStatus int
+	}{
+		{"message envelope", http.StatusBadRequest, `{"message":"Bad request"}`, "Bad request", 400},
+		{"errors map", http.StatusForbidden, `{"errors":{"workspace":["no access"]}}`, "no access", 403},
+		{"raw text fallback", http.StatusTeapot, `I'm a teapot`, "teapot", 418},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			_, err := NewClient(server.URL, "k").GetUser(context.Background())
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.wantMsg) {
+				t.Errorf("error %q does not contain %q", err.Error(), tt.wantMsg)
+			}
+			var apiErr *APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.wantStatus {
+				t.Errorf("status classification failed: %v", err)
+			}
+		})
 	}
 }

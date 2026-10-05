@@ -66,7 +66,11 @@ func nonEmpty(field string) func(string) error {
 }
 
 // renderTable renders an aligned table with a styled header and separator.
+// It returns an empty string when there are no rows.
 func renderTable(headers []string, rows [][]string) string {
+	if len(rows) == 0 {
+		return ""
+	}
 	widths := make([]int, len(headers))
 	for i, h := range headers {
 		widths[i] = lipgloss.Width(h)

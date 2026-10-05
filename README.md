@@ -95,14 +95,62 @@ user (24h) and project list (15 minutes) under
 `${XDG_CACHE_HOME:-~/.cache}/clockify-cli/`. Delete that directory to force a
 refresh.
 
-## Development
+## Testing
+
+The project has three layers of testing — from fastest to most realistic:
+
+### 1. Automated test suite (unit + end-to-end)
 
 ```bash
-go build ./...   # compile
-gofmt -l .       # formatting check (should print nothing)
-go vet ./...     # static analysis
-go test ./...    # unit tests
+go test -race -cover ./...
 ```
+
+- `pkg/clockify` — HTTP client unit tests against `httptest` servers: auth
+  header, paths, query params, pagination, PUT-vs-PATCH semantics, UTC
+  normalization, and error-envelope parsing (401/403/429…).
+- `cmd` — time parsing, project resolution, caching, table rendering, plus
+  **end-to-end tests that run the real Cobra commands** (`list`, `log`,
+  `start`, `stop`, `config init`) against an in-process mock API and assert on
+  both terminal output and the exact requests sent to the server.
+
+Useful variants:
+
+```bash
+go test -v ./...               # verbose, per-test output
+go test -run TestListEndToEnd ./cmd   # one test
+go test -coverprofile=cover.out ./... && go tool cover -func=cover.out
+```
+
+### 2. Manual demo — no Clockify account needed
+
+A bundled mock API server lets you click through the real binary:
+
+```bash
+# terminal 1
+python3 scripts/mock_clockify.py          # listens on 127.0.0.1:8977
+
+# terminal 2 (repo root)
+export CLOCKIFY_API_KEY=mock-key
+export CLOCKIFY_WORKSPACE_ID=w1
+export CLOCKIFY_BASE_URL=http://127.0.0.1:8977
+
+./clockify list
+./clockify log -d "Demo work" --start 14:00 --duration 1h -p "Website Redesign"
+./clockify start -d "Demo timer"
+./clockify stop
+```
+
+To exercise the interactive forms, run `./clockify log` or `./clockify
+config init` with **no flags** in a real terminal (Huh forms need a TTY).
+
+### 3. Against real Clockify
+
+1. Create an API key (Clockify → Profile Settings → API).
+2. `./clockify config init` and pick your workspace.
+3. Try `./clockify start -d "test"`, `./clockify stop`, `./clockify list`.
+
+> **Free plan:** 30 API requests/hour/workspace — use the mock for heavy
+> experimenting to avoid burning your quota.
 
 ## Releasing
 
