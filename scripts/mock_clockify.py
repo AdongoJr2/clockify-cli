@@ -50,6 +50,7 @@ ENTRIES = [
     },
 ]
 RUNNING = []  # populated by POST without end (start timer)
+_next_id = 1  # counter for entries created via POST
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -79,18 +80,39 @@ class Handler(BaseHTTPRequestHandler):
         elif path.endswith("/time-entries/status/in-progress"):
             self._send(RUNNING)
         elif "/time-entries/" in path:  # single entry: .../time-entries/{id}
-            self._send(ENTRIES[0])
+            entry_id = path.rsplit("/", 1)[-1]
+            entry = next((e for e in ENTRIES if e["id"] == entry_id), None)
+            if entry is None:
+                self._send({"message": "time entry not found"}, 404)
+            else:
+                self._send(entry)
         elif "/time-entries" in path:
             self._send(ENTRIES)
         else:
             self._send({"message": f"no mock for GET {path}"}, 404)
 
+    def do_DELETE(self):
+        entry_id = self.path.rsplit("/", 1)[-1]
+        before = len(ENTRIES)
+        ENTRIES[:] = [e for e in ENTRIES if e["id"] != entry_id]
+        if len(ENTRIES) == before:
+            self._send({"message": "time entry not found"}, 404)
+            return
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def do_POST(self):
+        global _next_id
         body = self._body()
         if self.path.endswith("/time-entries"):
-            entry = {"id": "e-new", "description": body.get("description", ""),
+            entry = {"id": f"e-mock-{_next_id}", "description": body.get("description", ""),
                      "billable": body.get("billable", True),
                      "timeInterval": {"start": body.get("start"), "end": body.get("end")}}
+            _next_id += 1
+            if body.get("projectId"):
+                entry["projectId"] = body["projectId"]
+            ENTRIES.insert(0, entry)
             if not body.get("end"):  # timer started → mark as running
                 RUNNING.clear()
                 RUNNING.append({**entry, "userId": USER["id"]})

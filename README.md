@@ -12,6 +12,7 @@ terminal.
 - 🕹️ Start/stop live timers from the command line
 - 📝 Log past entries via flags (scriptable) or an interactive form
 - ✏️ Update existing entries (description, times, project, billable)
+- 🗑️ Delete entries by ID or description (with confirmation)
 - 📋 Colorful, aligned table of your most recent entries
 - 🎨 Interactive prompts ([huh](https://github.com/charmbracelet/huh)) and styled output ([lipgloss](https://github.com/charmbracelet/lipgloss))
 - ⏳ Animated spinner while API requests are in flight (TTY only — pipes stay clean)
@@ -76,7 +77,20 @@ clockify update <entry-id> -d "Renamed task"
 clockify update <entry-id> --start "09:00" --end "11:00"
 clockify update <entry-id> --start "14:00" --duration 2h -p "Backend API"
 clockify update                 # pick a recent entry, edit via interactive form
+
+clockify delete -d "Testing..."  # find by description, then confirm
+clockify delete <entry-id>        # by ID, with confirmation
+clockify delete --yes -d "..."    # no prompt (scripts/CI)
+clockify delete                   # pick from recent entries
 ```
+
+### Deleting entries
+
+`clockify delete` targets an entry by **ID**, by **description** (`-d`, exact
+match preferred over substring), or by picking from your recent entries in a
+terminal. Deletion is permanent, so the CLI always shows which entry will be
+removed and asks you to confirm — pass `--yes` to skip the prompt in
+non-interactive runs.
 
 ### Time formats
 

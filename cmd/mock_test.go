@@ -64,6 +64,12 @@ func (m *mockClockify) setRunning(entries []clockify.TimeEntry) {
 	m.running = entries
 }
 
+func (m *mockClockify) setEntries(entries []clockify.TimeEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = entries
+}
+
 // find returns the first recorded request matching method and path suffix.
 func (m *mockClockify) find(method, pathSuffix string) (mockRequest, bool) {
 	m.mu.Lock()
@@ -105,13 +111,18 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 		writeJSON(running, 200)
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries/"):
 		// Single entry: /workspaces/{ws}/time-entries/{id}
-		if path != "/workspaces/w1/time-entries/e1" {
-			writeJSON(map[string]any{"message": "time entry not found"}, 404)
-			return
+		id := path[strings.LastIndex(path, "/")+1:]
+		for i := range entries {
+			if entries[i].ID == id {
+				writeJSON(entries[i], 200)
+				return
+			}
 		}
-		writeJSON(entries[0], 200)
+		writeJSON(map[string]any{"message": "time entry not found"}, 404)
 	case r.Method == http.MethodPut && strings.Contains(path, "/time-entries/"):
 		writeJSON(map[string]any{"id": "e1"}, 200)
+	case r.Method == http.MethodDelete && strings.Contains(path, "/time-entries/"):
+		w.WriteHeader(http.StatusNoContent) // DELETE → 204, empty body
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries"):
 		writeJSON(entries, 200)
 	case r.Method == http.MethodPost && strings.HasSuffix(path, "/time-entries"):

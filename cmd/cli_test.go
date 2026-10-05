@@ -403,3 +403,101 @@ func TestUpdateRequiresEditFlagsNonInteractive(t *testing.T) {
 		t.Error("no PUT should be sent when nothing changed")
 	}
 }
+
+func TestDeleteByDescriptionEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	start := time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC)
+	end := start.Add(10 * time.Minute)
+	mock.setEntries([]clockify.TimeEntry{
+		{ID: "e7", Description: "Testing...", TimeInterval: &clockify.TimeInterval{Start: &start, End: &end}},
+		{ID: "e8", Description: "Other work", TimeInterval: &clockify.TimeInterval{Start: &start, End: &end}},
+	})
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "delete", "-d", "Testing...", "--yes")
+	if err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if !strings.Contains(out, "Deleted entry") || !strings.Contains(out, "Testing...") {
+		t.Errorf("output should name the deleted entry:\n%s", out)
+	}
+	if _, ok := mock.find(http.MethodDelete, "/time-entries/e7"); !ok {
+		t.Error("no DELETE .../time-entries/e7 recorded")
+	}
+}
+
+func TestDeletePrefersExactDescriptionMatch(t *testing.T) {
+	mock := newMockClockify(t)
+	start := time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC)
+	end := start.Add(10 * time.Minute)
+	mock.setEntries([]clockify.TimeEntry{
+		{ID: "e9", Description: "Testing more", TimeInterval: &clockify.TimeInterval{Start: &start, End: &end}},
+		{ID: "e7", Description: "Testing...", TimeInterval: &clockify.TimeInterval{Start: &start, End: &end}},
+	})
+	setupCLIEnv(t, mock.server.URL)
+
+	if _, err := runCLI(t, "delete", "-d", "Testing...", "--yes"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, ok := mock.find(http.MethodDelete, "/time-entries/e7"); !ok {
+		t.Error("exact match e7 must win over substring match e9")
+	}
+	if _, ok := mock.find(http.MethodDelete, "/time-entries/e9"); ok {
+		t.Error("substring match e9 must not be deleted")
+	}
+}
+
+func TestDeleteAmbiguousDescriptionNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	start := time.Date(2026, 10, 5, 14, 0, 0, 0, time.UTC)
+	end := start.Add(10 * time.Minute)
+	mock.setEntries([]clockify.TimeEntry{
+		{ID: "e7", Description: "Testing round 1", TimeInterval: &clockify.TimeInterval{Start: &start, End: &end}},
+		{ID: "e9", Description: "Testing round 2", TimeInterval: &clockify.TimeInterval{Start: &start, End: &end}},
+	})
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "delete", "-d", "Testing", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "2 entries match") {
+		t.Fatalf("err = %v, want '2 entries match'", err)
+	}
+	if _, ok := mock.find(http.MethodDelete, ""); ok {
+		t.Error("ambiguous match must not delete anything")
+	}
+}
+
+func TestDeleteRequiresYesWhenNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "delete", "e1")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("err = %v, want '--yes'", err)
+	}
+	if _, ok := mock.find(http.MethodDelete, ""); ok {
+		t.Error("no DELETE should be sent without confirmation")
+	}
+}
+
+func TestDeleteRequiresTargetWhenNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "delete")
+	if err == nil || !strings.Contains(err.Error(), "entry ID") {
+		t.Fatalf("err = %v, want 'entry ID'", err)
+	}
+}
+
+func TestDeleteNoMatchingDescription(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "delete", "-d", "Nothing matches this", "--yes")
+	if err == nil || !strings.Contains(err.Error(), "no entry") {
+		t.Fatalf("err = %v, want 'no entry'", err)
+	}
+	if _, ok := mock.find(http.MethodDelete, ""); ok {
+		t.Error("no DELETE should be sent when nothing matches")
+	}
+}

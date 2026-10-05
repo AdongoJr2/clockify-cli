@@ -364,3 +364,25 @@ func TestErrorEnvelopeVariants(t *testing.T) {
 		})
 	}
 }
+
+func TestDeleteTimeEntry(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		w.WriteHeader(http.StatusNoContent) // Clockify returns 204 with no body
+	}))
+	defer server.Close()
+
+	if err := NewClient(server.URL, "k").DeleteTimeEntry(context.Background(), "w1", "e1"); err != nil {
+		t.Fatalf("DeleteTimeEntry: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("method = %s, want DELETE", gotMethod)
+	}
+	if want := "/workspaces/w1/time-entries/e1"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+}

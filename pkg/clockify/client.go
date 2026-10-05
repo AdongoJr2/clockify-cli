@@ -249,6 +249,12 @@ func (c *Client) GetTimeEntry(ctx context.Context, workspaceID, entryID string) 
 	return &entry, nil
 }
 
+// DeleteTimeEntry permanently removes a time entry (DELETE, 204 No Content).
+func (c *Client) DeleteTimeEntry(ctx context.Context, workspaceID, entryID string) error {
+	path := fmt.Sprintf("/workspaces/%s/time-entries/%s", url.PathEscape(workspaceID), url.PathEscape(entryID))
+	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+}
+
 // UpdateTimeEntry edits an existing entry (PUT — note PATCH is reserved for
 // stopping a running timer). Start is required by the API. Timestamps are
 // normalized to UTC before sending.

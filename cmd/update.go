@@ -323,23 +323,10 @@ func pickEntryToEdit(ctx context.Context, client *clockify.Client, workspaceID s
 		return "", errors.New("no time entries to update")
 	}
 
-	type choice struct{ id, label string }
+	type choice struct{ id string }
 	options := make([]huh.Option[choice], 0, len(entries))
 	for i := range entries {
-		e := &entries[i]
-		label := e.Description
-		if label == "" {
-			label = "(no description)"
-		}
-		timing := "no time data"
-		if ti := e.TimeInterval; ti != nil && ti.Start != nil {
-			if ti.End != nil {
-				timing = fmt.Sprintf("%s → %s (%s)", formatClock(*ti.Start), formatClock(*ti.End), formatDuration(ti.End.Sub(*ti.Start)))
-			} else {
-				timing = fmt.Sprintf("%s → running", formatClock(*ti.Start))
-			}
-		}
-		options = append(options, huh.NewOption(fmt.Sprintf("%s · %s", timing, label), choice{id: e.ID, label: label}))
+		options = append(options, huh.NewOption(entryOptionLabel(&entries[i]), choice{id: entries[i].ID}))
 	}
 
 	var selected choice
@@ -354,4 +341,69 @@ func pickEntryToEdit(ctx context.Context, client *clockify.Client, workspaceID s
 		return "", fmt.Errorf("cancelled: %w", err)
 	}
 	return selected.id, nil
+}
+
+// entryOptionLabel formats an entry for pickers and confirmation text:
+// "05 Oct 09:00 → 10:30 (1h 30m) · Deep work".
+func entryOptionLabel(e *clockify.TimeEntry) string {
+	label := e.Description
+	if label == "" {
+		label = "(no description)"
+	}
+	timing := "no time data"
+	if ti := e.TimeInterval; ti != nil && ti.Start != nil {
+		if ti.End != nil {
+			timing = fmt.Sprintf("%s → %s (%s)", formatClock(*ti.Start), formatClock(*ti.End), formatDuration(ti.End.Sub(*ti.Start)))
+		} else {
+			timing = fmt.Sprintf("%s → running", formatClock(*ti.Start))
+		}
+	}
+	return fmt.Sprintf("%s · %s", timing, label)
+}
+
+// pickRecentEntry lets the user choose one of their 10 most recent entries.
+func pickRecentEntry(ctx context.Context, client *clockify.Client, workspaceID, title, description string) (*clockify.TimeEntry, error) {
+	if !isInteractive() {
+		return nil, errors.New("entry ID required — run in a terminal to pick from a list")
+	}
+
+	var entries []clockify.TimeEntry
+	if err := runWithSpinner("Fetching recent entries…", func() error {
+		user, err := currentUser(ctx, client)
+		if err != nil {
+			return err
+		}
+		entries, err = client.GetTimeEntries(ctx, workspaceID, user.ID, clockify.TimeEntryListParams{
+			Page:     1,
+			PageSize: 10,
+			Hydrated: true,
+		})
+		return err
+	}); err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, errors.New("no time entries")
+	}
+
+	type choice struct {
+		entry *clockify.TimeEntry
+	}
+	options := make([]huh.Option[choice], 0, len(entries))
+	for i := range entries {
+		options = append(options, huh.NewOption(entryOptionLabel(&entries[i]), choice{entry: &entries[i]}))
+	}
+
+	var selected choice
+	form := huh.NewForm(huh.NewGroup(
+		huh.NewSelect[choice]().
+			Title(title).
+			Description(description).
+			Options(options...).
+			Value(&selected),
+	))
+	if err := form.Run(); err != nil {
+		return nil, fmt.Errorf("cancelled: %w", err)
+	}
+	return selected.entry, nil
 }
