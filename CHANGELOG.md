@@ -10,6 +10,8 @@ concise and user-facing.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-07
+
 ### Added
 
 - `clockify list --sort`: order entries by `start`, `end`, `duration`,
@@ -17,9 +19,27 @@ concise and user-facing.
   durations default to most-recent/longest first, text A→Z). Sorting runs
   client-side — the Clockify API has no sort parameters — and fetches a full
   page (50) unless `-n` is given.
+
+### Fixed
+
+- Released binaries now stamp the exact git tag (e.g. `clockify version
+  v0.5.0`), matching locally built binaries — previously release builds
+  stripped the `v` prefix.
+- `TestBatchLogEndToEnd` no longer hard-codes "today" (it broke once the
+  machine clock passed the date it assumed).
+
+## [0.7.0] - 2026-10-05
+
+### Added
+
 - `clockify list --no-trunc`: show full descriptions and project names instead
   of the default 40/30-character table truncation. Descriptions containing
   newlines are collapsed to a single table row in both modes.
+
+## [0.6.0] - 2026-10-05
+
+### Added
+
 - `clockify projects`: list workspace projects (name, ID, active/archived
   status, billable) with `--active`, `--archived`, `-p/--project` (server-side
   substring search), `--exact`, and `-n/--count`.
@@ -30,11 +50,6 @@ concise and user-facing.
 
 ### Fixed
 
-- Released binaries now stamp the exact git tag (e.g. `clockify version
-  v0.5.0`), matching locally built binaries — previously release builds
-  stripped the `v` prefix.
-- `TestBatchLogEndToEnd` no longer hard-codes "today" (it broke once the
-  machine clock passed the date it assumed).
 - Release workflow: check out the repository before creating the release, so
   `gh release create --verify-tag` can resolve the tag with git.
 - README badges: switched the release badge to a static `release-latest` badge
@@ -43,6 +58,8 @@ concise and user-facing.
 - Upgraded every GitHub Actions workflow to Node 24 runtimes
   (`checkout@v7`, `setup-go@v7`, `upload-artifact@v7`, `download-artifact@v8`,
   `docker/*` latest) with `ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node24`.
+- Test harness: `runCLI` resets all flags before every execution so repeated
+  in-process runs never leak flag state into each other.
 
 ## [0.5.0] - 2026-10-05
 
@@ -66,11 +83,6 @@ concise and user-facing.
   with `SHA256SUMS`, attached to a release created from a pushed `v*` tag.
 - Container publishing: multi-arch (`linux/amd64`, `linux/arm64`) images at
   `ghcr.io/adongojr2/clockify-cli`, tagged `latest` and per version.
-
-### Changed
-
-- GitHub Actions upgraded to Node 24 runtimes (`checkout@v7`, `setup-go@v7`,
-  `upload-artifact@v7`, `download-artifact@v8`, `docker/*@v4`+).
 
 ### Fixed
 
