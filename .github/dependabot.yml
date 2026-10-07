@@ -1,0 +1,18 @@
+version: 2
+updates:
+  # Go dependencies: keeps cobra/viper/huh/lipgloss (and the module toolchain) current.
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+  # GitHub Actions pins: checkout, setup-go, docker/*, etc.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  # Runtime base image in the Dockerfile.
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
