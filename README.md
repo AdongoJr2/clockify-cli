@@ -111,6 +111,8 @@ clockify list                   # last 5 entries
 clockify list -n 10             # last 10 entries
 clockify list --range last-week # only last week
 clockify list --from 2026-10-01 --to 2026-10-07
+clockify list --sort duration    # longest first
+clockify list --sort start --asc # oldest first
 clockify list --no-trunc        # full descriptions and project names
 
 clockify update <entry-id> -d "Renamed task"
@@ -192,6 +194,11 @@ clockify list --range last-week -n 10        # combine with -n
 - Long descriptions and project names are truncated to fit the table
   (multi-line descriptions collapse to a single row); pass `--no-trunc` to
   show them in full.
+- `--sort` orders entries client-side (the API has no sort parameter) by
+  `start`, `end`, `duration`, `description`, or `project`. Times/durations
+  default to most-recent/longest first, text to A→Z; override with
+  `--asc`/`--desc`. A sorted view fetches a full page (50) unless `-n` is
+  given, so ordering applies to more than the latest few entries.
 - With shell completion enabled (`clockify completion bash`), `--range`
   suggests the valid presets.
 

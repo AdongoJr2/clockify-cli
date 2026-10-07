@@ -624,6 +624,110 @@ func TestActiveOnlyHelper(t *testing.T) {
 	}
 }
 
+func sortFixture() []clockify.TimeEntry {
+	return []clockify.TimeEntry{
+		{
+			ID: "e-short", Description: "Zebra task",
+			TimeInterval: &clockify.TimeInterval{Start: ts(9, 0), End: ts(9, 10)}, // 10m
+		},
+		{
+			ID: "e-long", Description: "alpha task",
+			TimeInterval: &clockify.TimeInterval{Start: ts(8, 0), End: ts(9, 30)}, // 1h30m
+		},
+		{
+			ID: "e-mid", Description: "Middle",
+			TimeInterval: &clockify.TimeInterval{Start: ts(10, 0), End: ts(10, 45)}, // 45m
+		},
+	}
+}
+
+// rowOrder returns the positions of needles in s; fails the test when any is missing.
+func rowOrder(t *testing.T, out string, needles ...string) []int {
+	t.Helper()
+	pos := make([]int, len(needles))
+	for i, n := range needles {
+		pos[i] = strings.Index(out, n)
+		if pos[i] < 0 {
+			t.Fatalf("output missing %q:\n%s", n, out)
+		}
+	}
+	return pos
+}
+
+func TestListSortDurationEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+	mock.setEntries(sortFixture())
+
+	out, err := runCLI(t, "list", "--sort", "duration")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "sorted by duration ↓") {
+		t.Errorf("header should announce the sort:\n%s", out)
+	}
+	// Default duration direction: longest first.
+	p := rowOrder(t, out, "alpha task", "Middle", "Zebra task")
+	if !(p[0] < p[1] && p[1] < p[2]) {
+		t.Errorf("duration desc order wrong (positions %v):\n%s", p, out)
+	}
+
+	out, err = runCLI(t, "list", "--sort", "duration", "--asc")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if !strings.Contains(out, "sorted by duration ↑") {
+		t.Errorf("asc header missing:\n%s", out)
+	}
+	p = rowOrder(t, out, "Zebra task", "Middle", "alpha task")
+	if !(p[0] < p[1] && p[1] < p[2]) {
+		t.Errorf("duration asc order wrong (positions %v):\n%s", p, out)
+	}
+}
+
+func TestListSortStartDefaultDirection(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+	mock.setEntries(sortFixture())
+
+	out, err := runCLI(t, "list", "--sort", "start")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	// start desc → most recent start (10:00 Middle) first, earliest (08:00) last.
+	p := rowOrder(t, out, "Middle", "Zebra task", "alpha task")
+	if !(p[0] < p[1] && p[1] < p[2]) {
+		t.Errorf("start desc order wrong (positions %v):\n%s", p, out)
+	}
+
+	// Sorting fetches a full page unless -n is given.
+	req, ok := mock.find(http.MethodGet, "/time-entries")
+	if !ok {
+		t.Fatal("no GET /time-entries recorded")
+	}
+	if !strings.Contains(req.Query, "page-size=50") {
+		t.Errorf("sorted list should default to page-size=50: %q", req.Query)
+	}
+}
+
+func TestListSortErrors(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	if _, err := runCLI(t, "list", "--sort", "priority"); err == nil ||
+		!strings.Contains(err.Error(), "unknown sort field") {
+		t.Errorf("err = %v, want 'unknown sort field'", err)
+	}
+	if _, err := runCLI(t, "list", "--sort", "start", "--asc", "--desc"); err == nil ||
+		!strings.Contains(err.Error(), "mutually exclusive") {
+		t.Errorf("err = %v, want 'mutually exclusive'", err)
+	}
+	if _, err := runCLI(t, "list", "--asc"); err == nil ||
+		!strings.Contains(err.Error(), "need --sort") {
+		t.Errorf("err = %v, want 'need --sort'", err)
+	}
+}
+
 func TestListRangePresetEndToEnd(t *testing.T) {
 	mock := newMockClockify(t)
 	setupCLIEnv(t, mock.server.URL)

@@ -181,8 +181,11 @@ entries:
 	if err != nil {
 		t.Fatalf("parse start: %v", err)
 	}
-	if want := time.Date(2026, 10, 5, 9, 30, 0, 0, time.Local).UTC(); !start.Equal(want) {
-		t.Errorf("start = %v, want %v (UTC)", start, want)
+	// "09:30" is time-only, so it means "today" — never hardcode the date.
+	now := time.Now()
+	wantStart := time.Date(now.Year(), now.Month(), now.Day(), 9, 30, 0, 0, now.Location())
+	if !start.Equal(wantStart.UTC()) {
+		t.Errorf("start = %v, want %v (UTC)", start, wantStart.UTC())
 	}
 	if end, err := time.Parse(time.RFC3339, body["end"].(string)); err != nil || end.Sub(start) != 15*time.Minute {
 		t.Errorf("end-start should be 15m, got start=%v end=%v err=%v", start, end, err)

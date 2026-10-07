@@ -15,6 +15,9 @@ var listFlags struct {
 	from      string
 	to        string
 	noTrunc   bool
+	sortField string
+	asc       bool
+	desc      bool
 }
 
 var listCmd = &cobra.Command{
@@ -32,10 +35,17 @@ window but ran into it will not be listed.
 Long descriptions and project names are truncated to fit the table —
 pass --no-trunc to show them in full.
 
+The API returns entries newest-first; use --sort to order client-side by
+start (default), end, duration, description, or project. Times and durations
+default to longest/most recent first, text to A→Z; flip with --asc/--desc.
+
 Examples:
   clockify list                                # recent 5
   clockify list --range last-week
   clockify list --range today -n 20
+  clockify list --sort duration                # longest first
+  clockify list --sort start --asc             # oldest first
+  clockify list --sort description --asc
   clockify list --no-trunc                     # full text, no truncation
   clockify list --from 2026-10-01 --to 2026-10-07
   clockify list --from "2026-10-01 09:00"
@@ -50,6 +60,9 @@ func init() {
 	listCmd.Flags().StringVar(&listFlags.from, "from", "", `custom window start ("2026-10-01", "2026-10-01 09:00", or RFC3339)`)
 	listCmd.Flags().StringVar(&listFlags.to, "to", "", "custom window end (same formats; defaults to now)")
 	listCmd.Flags().BoolVar(&listFlags.noTrunc, "no-trunc", false, "show full descriptions and project names instead of truncating")
+	listCmd.Flags().StringVar(&listFlags.sortField, "sort", "", "order entries by: start, end, duration, description, or project")
+	listCmd.Flags().BoolVar(&listFlags.asc, "asc", false, "sort ascending (with --sort)")
+	listCmd.Flags().BoolVar(&listFlags.desc, "desc", false, "sort descending (with --sort)")
 
 	_ = listCmd.RegisterFlagCompletionFunc("range", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return canonicalRangeNames(), cobra.ShellCompDirectiveNoFileComp
@@ -73,6 +86,12 @@ func runList(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// Optional client-side ordering (--sort/--asc/--desc).
+	sortField, sortDir, err := resolveSort(listFlags.sortField, listFlags.asc, listFlags.desc)
+	if err != nil {
+		return err
+	}
+
 	count := listFlags.count
 	if count < 1 {
 		count = 1
@@ -80,9 +99,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 	if count > 50 {
 		count = 50
 	}
-	// A filtered view is usually a report rather than a quick peek, so show a
-	// full page unless the user asked for a specific count.
-	if timeRange != nil && !cmd.Flags().Changed("count") {
+	// A filtered or sorted view is usually a report rather than a quick peek,
+	// so show a full page unless the user asked for a specific count.
+	if (timeRange != nil || sortField != "") && !cmd.Flags().Changed("count") {
 		count = 50
 	}
 
@@ -120,6 +139,9 @@ func runList(cmd *cobra.Command, _ []string) error {
 	}
 
 	now := time.Now()
+	// Order client-side: the API has no sort parameters.
+	sortEntries(entries, sortField, sortDir, now)
+
 	rows := make([][]string, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
@@ -164,14 +186,23 @@ func runList(cmd *cobra.Command, _ []string) error {
 		rows = append(rows, []string{desc, project, startStr, endStr, durStr})
 	}
 
+	header := ""
 	if timeRange != nil && timeRange.label != "" {
 		noun := "entries"
 		if len(rows) == 1 {
 			noun = "entry"
 		}
-		fmt.Println(accentStyle.Render(fmt.Sprintf("%s · %d %s", timeRange.label, len(rows), noun)))
+		header = fmt.Sprintf("%s · %d %s", timeRange.label, len(rows), noun)
 	} else {
-		fmt.Println(accentStyle.Render(fmt.Sprintf("Last %d time entries", len(rows))))
+		header = fmt.Sprintf("Last %d time entries", len(rows))
+	}
+	fmt.Println(accentStyle.Render(header))
+	if sortField != "" {
+		arrow := "↓"
+		if sortDir == "asc" {
+			arrow = "↑"
+		}
+		fmt.Println(mutedStyle.Render(fmt.Sprintf("sorted by %s %s", sortField, arrow)))
 	}
 	fmt.Println()
 	fmt.Println(renderTable([]string{"DESCRIPTION", "PROJECT", "START", "END", "DURATION"}, rows))

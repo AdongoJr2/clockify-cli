@@ -12,6 +12,11 @@ concise and user-facing.
 
 ### Added
 
+- `clockify list --sort`: order entries by `start`, `end`, `duration`,
+  `description`, or `project`, with `--asc`/`--desc` overrides (times and
+  durations default to most-recent/longest first, text A→Z). Sorting runs
+  client-side — the Clockify API has no sort parameters — and fetches a full
+  page (50) unless `-n` is given.
 - `clockify list --no-trunc`: show full descriptions and project names instead
   of the default 40/30-character table truncation. Descriptions containing
   newlines are collapsed to a single table row in both modes.
@@ -25,6 +30,11 @@ concise and user-facing.
 
 ### Fixed
 
+- Released binaries now stamp the exact git tag (e.g. `clockify version
+  v0.5.0`), matching locally built binaries — previously release builds
+  stripped the `v` prefix.
+- `TestBatchLogEndToEnd` no longer hard-codes "today" (it broke once the
+  machine clock passed the date it assumed).
 - Release workflow: check out the repository before creating the release, so
   `gh release create --verify-tag` can resolve the tag with git.
 - README badges: switched the release badge to a static `release-latest` badge
