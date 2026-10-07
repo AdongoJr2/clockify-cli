@@ -126,6 +126,9 @@ clockify projects --archived               # archived only
 clockify projects -p "Website"             # server-side name filter
 clockify projects -p "Website" --exact     # exact name match
 
+clockify duplicate                 # "do it again": pick a recent entry, copy it
+clockify duplicate <entry-id>      # copy a specific entry, keeps everything
+
 clockify delete -d "Testing..."  # find by description, then confirm
 clockify delete <entry-id>        # by ID, with confirmation
 clockify delete --yes -d "..."    # no prompt (scripts/CI)

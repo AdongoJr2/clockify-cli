@@ -269,6 +269,18 @@ func (c *Client) GetTimeEntry(ctx context.Context, workspaceID, entryID string) 
 	return &entry, nil
 }
 
+// DuplicateTimeEntry duplicates an existing entry (POST .../duplicate, no
+// body). Returns the newly created entry (201).
+func (c *Client) DuplicateTimeEntry(ctx context.Context, workspaceID, userID, entryID string) (*TimeEntry, error) {
+	path := fmt.Sprintf("/workspaces/%s/user/%s/time-entries/%s/duplicate",
+		url.PathEscape(workspaceID), url.PathEscape(userID), url.PathEscape(entryID))
+	var entry TimeEntry
+	if err := c.do(ctx, http.MethodPost, path, nil, nil, &entry); err != nil {
+		return nil, err
+	}
+	return &entry, nil
+}
+
 // DeleteTimeEntry permanently removes a time entry (DELETE, 204 No Content).
 func (c *Client) DeleteTimeEntry(ctx context.Context, workspaceID, entryID string) error {
 	path := fmt.Sprintf("/workspaces/%s/time-entries/%s", url.PathEscape(workspaceID), url.PathEscape(entryID))

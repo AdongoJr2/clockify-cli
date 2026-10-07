@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -449,5 +450,39 @@ func TestDeleteTimeEntry(t *testing.T) {
 	}
 	if want := "/workspaces/w1/time-entries/e1"; gotPath != want {
 		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+}
+
+func TestDuplicateTimeEntry(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath string
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"e-dup","description":"Deep work",
+			"timeInterval":{"start":"2026-10-05T09:00:00Z","end":"2026-10-05T10:30:00Z"}}`))
+	}))
+	defer server.Close()
+
+	entry, err := NewClient(server.URL, "k").DuplicateTimeEntry(context.Background(), "w1", "u1", "e1")
+	if err != nil {
+		t.Fatalf("DuplicateTimeEntry: %v", err)
+	}
+	if entry.ID != "e-dup" {
+		t.Errorf("entry.ID = %q, want e-dup (the server assigns the new ID)", entry.ID)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %s, want POST", gotMethod)
+	}
+	if want := "/workspaces/w1/user/u1/time-entries/e1/duplicate"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+	if strings.TrimSpace(gotBody) != "" {
+		t.Errorf("duplicate takes no body, sent %q", gotBody)
 	}
 }

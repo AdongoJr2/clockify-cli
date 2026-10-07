@@ -10,6 +10,12 @@ concise and user-facing.
 
 ## [Unreleased]
 
+### Added
+
+- `clockify duplicate [entry-id]`: copy a time entry ("do it again") by ID or
+  by picking from recent entries. The copy keeps everything; edit it after
+  with `clockify update`.
+
 ## [0.8.0] - 2026-10-07
 
 ### Added

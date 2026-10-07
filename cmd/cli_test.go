@@ -612,6 +612,51 @@ func TestProjectsEmptyWarning(t *testing.T) {
 	}
 }
 
+func TestDuplicateEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "duplicate", "e1")
+	if err != nil {
+		t.Fatalf("duplicate: %v", err)
+	}
+	if !strings.Contains(out, "Duplicated entry") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+	if !strings.Contains(out, "Deep work") {
+		t.Errorf("copied entry's description should be shown:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodPost, "/time-entries/e1/duplicate")
+	if !ok {
+		t.Fatal("no POST .../time-entries/e1/duplicate recorded")
+	}
+	_ = req
+}
+
+func TestDuplicateEntryNotFound(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "duplicate", "no-such-entry")
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("err = %v, want 'not found'", err)
+	}
+}
+
+func TestDuplicateRequiresTargetNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "duplicate")
+	if err == nil || !strings.Contains(err.Error(), "entry ID") {
+		t.Fatalf("err = %v, want 'entry ID'", err)
+	}
+	if _, ok := mock.find(http.MethodPost, "/duplicate"); ok {
+		t.Error("nothing should be duplicated without a target")
+	}
+}
+
 func TestActiveOnlyHelper(t *testing.T) {
 	in := []clockify.Project{
 		{ID: "p1", Name: "A"},

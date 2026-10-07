@@ -135,7 +135,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         global _next_id
         body = self._body()
-        if self.path.endswith("/time-entries"):
+        if self.path.endswith("/duplicate"):
+            # POST .../time-entries/{id}/duplicate — copy the entry with a fresh id.
+            parts = self.path.split("?")[0].rstrip("/").split("/")
+            src_id = parts[-2] if len(parts) >= 2 else ""
+            src = next((e for e in ENTRIES if e["id"] == src_id), None)
+            if src is None:
+                self._send({"message": "time entry not found"}, 404)
+                return
+            dup = {**src, "id": "e-mock-dup"}
+            ENTRIES.insert(0, dup)
+            self._send(dup, 201)
+        elif self.path.endswith("/time-entries"):
             desc = body.get("description", "")
             # Failure injection for demos: descriptions containing "fail" are rejected.
             if "fail" in desc.lower():

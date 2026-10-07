@@ -172,6 +172,30 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 		writeJSON(map[string]any{"message": "time entry not found"}, 404)
 	case r.Method == http.MethodPut && strings.Contains(path, "/time-entries/"):
 		writeJSON(map[string]any{"id": "e1"}, 200)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/duplicate"):
+		// Duplicate: /workspaces/{ws}/user/{uid}/time-entries/{id}/duplicate.
+		// Mirror the real API: 404 when the source entry doesn't exist.
+		segments := strings.Split(strings.Trim(path, "/"), "/")
+		srcID := ""
+		if len(segments) >= 2 {
+			srcID = segments[len(segments)-2]
+		}
+		found := false
+		for i := range entries {
+			if entries[i].ID == srcID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			writeJSON(map[string]any{"message": "time entry not found"}, 404)
+			return
+		}
+		var copy map[string]any
+		raw, _ := json.Marshal(entries[0])
+		_ = json.Unmarshal(raw, &copy)
+		copy["id"] = "e-dup"
+		writeJSON(copy, 201)
 	case r.Method == http.MethodDelete && strings.Contains(path, "/time-entries/"):
 		w.WriteHeader(http.StatusNoContent) // DELETE → 204, empty body
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries"):
