@@ -65,14 +65,19 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          # Step 1: find the version id of the existing :latest tag.
+          # GET needs read:packages (GHCR_PAT has it; GITHUB_TOKEN may not).
           api_url="https://api.github.com/user/packages/container/clockify-cli/versions"
-          versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "$api_url") || true
+          versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "$api_url") || true
           echo "DIAG versions_response=$versions_response" >&2
           version_id=$(cat /tmp/versions.json | jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' | head -1) || true
           echo "DIAG version_id=$version_id" >&2
-          status=""
-          if [ -n "$version_id" ]; then
-            echo "Deleting stale ghcr.io/latest (version $version_id)"
+          if [ -z "$version_id" ]; then
+            echo "No existing ghcr.io/latest tag found; nothing to delete"
+          else
+            # Step 2: delete the version using the runner token (GITHUB_TOKEN has
+            # packages: write from the workflow permissions; GHCR_PAT lacks write:packages).
+            echo "Deleting stale ghcr.io/latest (version $version_id) with GITHUB_TOKEN"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id")
@@ -82,27 +87,6 @@ jobs:
             else
               echo "WARN: stale latest delete failed (HTTP $status)" >&2
             fi
-          else
-            echo "No stale ghcr.io/latest found; nothing to delete"
-          fi
-          # Always push diagnostics to the diagnostics branch so they are
-          # visible even if the build below hangs on a corrupt :latest tag.
-          {
-            echo "versions_response=$versions_response"
-            echo "version_id=$version_id"
-            echo "delete_status=$status"
-          } > /tmp/diag.txt
-          mkdir -p diag
-          cp /tmp/versions.json diag/versions.json
-          cp /tmp/diag.txt diag/diag.txt
-          git add diag/
-          git config user.email "ghcr-rebuild@example.com"
-          git config user.name "ghcr-rebuild"
-          git checkout -q diagnostics 2>/dev/null || git checkout -q -b diagnostics
-          if git commit -q -m "diagnostics: stale :latest cleanup" 2>/dev/null && git push -q origin diagnostics 2>/dev/null; then
-            echo "DIAG pushed to diagnostics branch"
-          else
-            echo "DIAG: failed to write diagnostics" >&2
           fi
 
       - name: Build and push
