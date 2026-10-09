@@ -12,7 +12,7 @@ on:
 
 permissions:
   contents: read
-  packages: write
+  packages: [read, write]
 
 # Run every action on the Node 24 runtime.
 env:
