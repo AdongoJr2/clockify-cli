@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -o /out/clockify .
 
 # ---- runtime stage ---------------------------------------------------------
-FROM alpine:3.21
+FROM alpine:3.24
 
 # tzdata: the CLI resolves local timezones; ca-certificates: TLS to api.clockify.me
 RUN apk add --no-cache ca-certificates tzdata \
