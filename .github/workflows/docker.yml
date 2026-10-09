@@ -62,7 +62,6 @@ jobs:
 
       - name: Delete stale latest tag (rebuild guard)
         if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
-        continue-on-error: true
         run: |
           set -euo pipefail
           # Step 1: find the version id of the existing :latest tag (needs read:packages).
@@ -74,85 +73,18 @@ jobs:
           if [ -z "$version_id" ]; then
             echo "No existing ghcr.io/latest tag found; nothing to delete"
           else
-            # Step 2: try to delete the version with the runner token
-            # (GITHUB_TOKEN has packages: write from workflow permissions).
-            echo "Deleting stale ghcr.io/latest (version $version_id) with GITHUB_TOKEN"
+            # GITHUB_TOKEN has packages: write from the workflow's permissions.
+            echo "Deleting ghcr.io/latest package version $version_id (removes :latest tag) with GITHUB_TOKEN"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id")
+              -H "Authorization: Bearer ${{ github.token }}" \
+              "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id") || true
             echo "DIAG delete_status=$status" >&2
             if echo "$status" | grep -qE '^20[0-4]$'; then
-              echo "Stale latest deleted; rebuilding cleanly"
+              echo "Stale :latest tag + manifests deleted; rebuilding cleanly"
             else
-              echo "WARN: stale latest delete failed (HTTP $status)" >&2
+              echo "ERROR: failed to delete ghcr.io/latest (HTTP $status); aborting" >&2
+              exit 1
             fi
-          fi
-          # Step 3: fallback — delete the registry manifest directly via the
-          # ghcr.io V2 API (GHCR_PAT has registry write access even though the
-          # PAT lacks gh API write:packages). First probe the tag with HEAD.
-          echo "DIAG: probing registry HEAD for :latest" >&2
-          head_status=$(curl -s -o /tmp/head_body -w '%{http_code}' \
-            -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
-            -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json" \
-            "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
-          head_bytes=$(wc -c < /tmp/head_body 2>/dev/null || echo 0)
-          echo "DIAG: registry HEAD(GHCR_PAT) status=$head_status bytes=$head_bytes" >&2
-          digest=""
-          if [ "$head_status" = "200" ]; then
-            digest=$(sha256sum /tmp/head_body | awk '{print "sha256:" $1}')
-            echo "DIAG: registry manifest digest=$digest" >&2
-            reg_status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-              -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
-              -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json" \
-              "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/$digest" 2>/dev/null) || true
-            echo "DIAG: registry DELETE(digest) status=$reg_status" >&2
-            if echo "$reg_status" | grep -qE '^20[0-4]$'; then
-              echo "Registry :latest manifest deleted by digest; rebuilding cleanly"
-            else
-              echo "WARN: registry digest DELETE returned HTTP $reg_status" >&2
-            fi
-          else
-            echo "HEAD with GHCR_PAT returned $head_status; skipping registry delete (may retry via OAuth)"
-          fi
-          # Step 4: exchange the PAT for a ghcr.io OAuth token (this is what
-          # docker login does), then use it for the registry V2 API.
-          echo "DIAG: exchanging PAT for ghcr.io OAuth token" >&2
-          token_resp=$(curl -s -D /tmp/token_headers -o /tmp/token_body -w 'HTTP:%{http_code}' \
-            -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)" \
-            "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push" 2>/dev/null) || true
-          token_status=$(echo "$token_resp" | tail -n1)
-          token_body=$(cat /tmp/token_body)
-          echo "DIAG: token_resp_http=$token_status" >&2
-          echo "DIAG: token_resp_body=$token_body" >&2
-          oauth_token=$(jq -r '.token' /tmp/token_body 2>/dev/null) || true
-          echo "DIAG: oauth_token=${oauth_token:0:16}...${#oauth_token}" >&2
-          if [ -n "$oauth_token" ]; then
-            echo "DIAG: trying HEAD with OAuth token" >&2
-            head_o_status=$(curl -s -o /tmp/head_body -w '%{http_code}' \
-              -H "Authorization: Bearer $oauth_token" \
-              -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json" \
-              "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
-            head_o_bytes=$(wc -c < /tmp/head_body 2>/dev/null || echo 0)
-            echo "DIAG: registry HEAD(OAuth) status=$head_o_status bytes=$head_o_bytes" >&2
-            if [ "$head_o_status" = "200" ]; then
-              digest=$(sha256sum /tmp/head_body | awk '{print "sha256:" $1}')
-              echo "DIAG: registry manifest digest (sha256 of manifest body)=$digest" >&2
-              echo "DIAG: deleting manifest digest $digest with OAuth token" >&2
-              del_o=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-                -H "Authorization: Bearer $oauth_token" \
-                -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json" \
-                "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/$digest" 2>/dev/null) || true
-              echo "DIAG: registry DELETE(digest,OAuth)=$del_o" >&2
-              if echo "$del_o" | grep -qE '^20[0-4]$'; then
-                echo "Registry :latest manifest deleted via OAuth; rebuilding cleanly"
-              else
-                echo "WARN: registry OAuth DELETE returned $del_o" >&2
-              fi
-            else
-              echo "HEAD with OAuth token returned $head_o_status; skipping registry delete"
-            fi
-          else
-            echo "WARN: failed to obtain ghcr.io OAuth token" >&2
           fi
 
       - name: Build and push
