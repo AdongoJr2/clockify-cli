@@ -88,6 +88,16 @@ jobs:
               echo "WARN: stale latest delete failed (HTTP $status)" >&2
             fi
           fi
+          # Fallback: delete at the registry level using the GHCR_PAT (registry
+          # write is accepted by ghcr.io even though the PAT lacks gh API write:packages).
+          echo "DIAG: attempting registry-level :latest manifest deletion" >&2
+          reg_status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE             -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}"             -H "Accept: application/vnd.docker.distribution.manifest.v2+json"             "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
+          echo "DIAG: registry DELETE status=$reg_status" >&2
+          case "$reg_status" in
+            20[0-4]) echo "Registry :latest manifest deleted; rebuilding cleanly";;
+            404)     echo "Registry :latest manifest already gone";;
+            *)       echo "WARN: registry DELETE returned HTTP $reg_status" >&2;;
+          esac
 
       - name: Build and push
         uses: docker/build-push-action@v7
