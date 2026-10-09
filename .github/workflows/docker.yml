@@ -113,12 +113,16 @@ jobs:
           # Step 4: exchange the PAT for a ghcr.io OAuth token (this is what
           # docker login does), then use it for the registry V2 API.
           echo "DIAG: exchanging PAT for ghcr.io OAuth token" >&2
-          oauth_token=$(curl -s -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)"             "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push"             | jq -r '.token' 2>/dev/null) || true
+          token_resp=$(curl -s -w '\nHTTP:%{http_code}' -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)"             "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push" 2>/dev/null) || true
+          echo "DIAG: token_resp_http=$(echo "$token_resp" | tail -n1)" >&2
+          echo "DIAG: token_resp_body=$(echo "$token_resp" | head -n -1)" >&2
+          oauth_token=$(echo "$token_resp" | head -n -1 | jq -r '.token' 2>/dev/null) || true
           echo "DIAG: oauth_token=${oauth_token:0:16}...${#oauth_token}" >&2
           if [ -n "$oauth_token" ]; then
             echo "DIAG: trying HEAD with OAuth token" >&2
-            head_o=$(curl -s -o /dev/null -w '%{http_code} docker-content-digest=%{header_docker_content_digest} size=%{header_docker_content_size}'               -H "Authorization: Bearer $oauth_token"               "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
+            head_o=$(curl -s -o /tmp/head_body -w '%{http_code} docker-content-digest=%{header_docker_content_digest} size=%{header_docker_content_size}'               -H "Authorization: Bearer $oauth_token"               "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
             echo "DIAG: registry HEAD(OAuth)=$head_o" >&2
+            echo "DIAG: head_body=$(cat /tmp/head_body)" >&2
             digest=$(echo "$head_o" | sed -n 's/.*docker-content-digest=\([^ ]*\).*/\1/p')
             if [ -n "$digest" ]; then
               echo "DIAG: deleting manifest digest $digest with OAuth token" >&2
