@@ -120,11 +120,11 @@ jobs:
           token_resp=$(curl -s -D /tmp/token_headers -o /tmp/token_body -w 'HTTP:%{http_code}' \
             -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)" \
             "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push" 2>/dev/null) || true
-          token_status=$(tail -n1 /tmp/token_headers)
+          token_status=$(echo "$token_resp" | tail -n1)
           token_body=$(cat /tmp/token_body)
           echo "DIAG: token_resp_http=$token_status" >&2
           echo "DIAG: token_resp_body=$token_body" >&2
-          oauth_token=$(echo "$token_resp" | head -n -1 | jq -r '.token' 2>/dev/null) || true
+          oauth_token=$(jq -r '.token' /tmp/token_body 2>/dev/null) || true
           echo "DIAG: oauth_token=${oauth_token:0:16}...${#oauth_token}" >&2
           if [ -n "$oauth_token" ]; then
             echo "DIAG: trying HEAD with OAuth token" >&2
