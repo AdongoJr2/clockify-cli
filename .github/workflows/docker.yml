@@ -1,6 +1,6 @@
 name: Container
 
-# Publishes ghcr.io/adongojr2/clockify-cli on main pushes and version tags.
+# Publishes ghcr.io/adongojr2/clockify-cli on main pushes (latest) and version tags.
 # Pull requests build (but do not push) to catch Dockerfile regressions.
 on:
   push:
@@ -60,32 +60,37 @@ jobs:
             echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-
       - name: Delete stale latest tag (rebuild guard)
         if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
         run: |
           set -euo pipefail
-          echo "DEBUG: starting stale tag cleanup" >&2
           api_url="https://api.github.com/user/packages/container/clockify-cli/versions"
           versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "$api_url") || true
-          echo "DEBUG: API HTTP status=$versions_response" >&2
+          echo "DEBUG: API status=$versions_response" >&2
           cat /tmp/versions.json >&2
           version_id=$(cat /tmp/versions.json | jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' | head -1) || true
           echo "DEBUG: version_id=$version_id" >&2
+          status=""
           if [ -n "$version_id" ]; then
-            echo "Deleting stale ghcr.io latest tag (version $version_id)"
+            echo "Deleting stale ghcr.io/latest (version $version_id)"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
               "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id")
-            echo "DEBUG: DELETE HTTP status=$status" >&2
+            echo "DEBUG: DELETE status=$status" >&2
             if echo "$status" | grep -qE '^20[0-4]$'; then
-              echo "Stale latest tag deleted; rebuilding cleanly"
+              echo "Stale latest deleted; rebuilding cleanly"
             else
-              echo "WARN: failed to delete stale latest tag (HTTP $status)" >&2
+              echo "WARN: stale latest delete failed (HTTP $status)" >&2
             fi
           else
-            echo "No existing ghcr.io latest tag found; nothing to delete"
+            echo "No stale ghcr.io/latest found; nothing to delete"
           fi
+          {
+            echo "## Stale :latest cleanup diagnostics"
+            echo "- API status: $versions_response"
+            echo "- version_id: $version_id"
+            echo "- DELETE status: $status"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build and push
         uses: docker/build-push-action@v7
