@@ -73,10 +73,10 @@ jobs:
           if [ -z "$version_id" ]; then
             echo "No existing ghcr.io/latest tag found; nothing to delete"
           else
-            # GITHUB_TOKEN has packages: write from the workflow's permissions.
-            echo "Deleting ghcr.io/latest package version $version_id (removes :latest tag) with GITHUB_TOKEN"
+            # GHCR_PAT has read:packages + write:packages scopes, so it can delete the package version.
+            echo "Deleting ghcr.io/latest package version $version_id (removes :latest tag) with GHCR_PAT"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-              -H "Authorization: Bearer ${{ github.token }}" \
+              -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
               "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id") || true
             echo "DIAG delete_status=$status" >&2
             if echo "$status" | grep -qE '^20[0-4]$'; then
