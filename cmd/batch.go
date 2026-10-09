@@ -25,6 +25,8 @@ import (
 //	    start: "09:30"                 # same formats as the single-entry flags
 //	    duration: 15m                   # ... or end: "09:45" (never both)
 //	    project: Website Redesign       # optional; project name or ID
+//	    task: Fix login                 # optional; task name or ID (needs project)
+//	    tags: [dev, review]             # optional; tag names or IDs
 //	    billable: true                  # optional; omit to use the project default
 type batchFile struct {
 	DefaultProject string       `yaml:"default-project"`
@@ -33,20 +35,26 @@ type batchFile struct {
 
 // batchEntry is one entry as written in the YAML file.
 type batchEntry struct {
-	Description string `yaml:"description"`
-	Start       string `yaml:"start"`
-	End         string `yaml:"end"`
-	Duration    string `yaml:"duration"`
-	Project     string `yaml:"project"`
-	Billable    *bool  `yaml:"billable"`
+	Description string   `yaml:"description"`
+	Start       string   `yaml:"start"`
+	End         string   `yaml:"end"`
+	Duration    string   `yaml:"duration"`
+	Project     string   `yaml:"project"`
+	Task        string   `yaml:"task"`
+	Tags        []string `yaml:"tags"`
+	Billable    *bool    `yaml:"billable"`
 }
 
-// resolvedEntry is a validated entry, ready to send.
+// resolvedEntry is a validated entry, ready to send. Task and Tags hold the
+// raw name/ID references from the YAML; they are resolved to IDs once,
+// before any write request.
 type resolvedEntry struct {
 	Description string
 	Start       time.Time
 	End         time.Time
 	Project     string // name or ID as written; "" means no project
+	Task        string // task name or ID as written; "" means no task
+	Tags        []string
 	Billable    *bool
 }
 
@@ -163,6 +171,21 @@ func parseBatchFile(data []byte, now time.Time) ([]resolvedEntry, error) {
 			project = defaultProject
 		}
 
+		task := strings.TrimSpace(raw.Task)
+		if task != "" && project == "" {
+			fail("%s: task requires a project (set project: or default-project:)", label)
+		}
+
+		var tags []string
+		for _, t := range raw.Tags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				fail("%s: tags must not contain empty entries", label)
+				break
+			}
+			tags = append(tags, t)
+		}
+
 		if len(problems) > before {
 			continue // entry is invalid — keep collecting problems from others
 		}
@@ -171,6 +194,8 @@ func parseBatchFile(data []byte, now time.Time) ([]resolvedEntry, error) {
 			Start:       start,
 			End:         end,
 			Project:     project,
+			Task:        task,
+			Tags:        tags,
 			Billable:    raw.Billable,
 		})
 	}
@@ -203,6 +228,14 @@ func runBatch(cmd *cobra.Command, path string) error {
 			if project == "" {
 				project = mutedStyle.Render("(no project)")
 			}
+			task := e.Task
+			if task == "" {
+				task = "—"
+			}
+			tags := strings.Join(e.Tags, ", ")
+			if tags == "" {
+				tags = "—"
+			}
 			billable := "—"
 			if e.Billable != nil {
 				billable = fmt.Sprintf("%v", *e.Billable)
@@ -211,6 +244,8 @@ func runBatch(cmd *cobra.Command, path string) error {
 				strconv.Itoa(i + 1),
 				truncate(e.Description, 30),
 				project,
+				task,
+				tags,
 				formatClock(e.Start),
 				formatClock(e.End),
 				formatDuration(e.End.Sub(e.Start)),
@@ -219,7 +254,7 @@ func runBatch(cmd *cobra.Command, path string) error {
 		}
 		fmt.Println(accentStyle.Render(fmt.Sprintf("Dry run · %d entries (no requests sent)", len(rows))))
 		fmt.Println()
-		fmt.Println(renderTable([]string{"#", "DESCRIPTION", "PROJECT", "START", "END", "DURATION", "BILLABLE"}, rows))
+		fmt.Println(renderTable([]string{"#", "DESCRIPTION", "PROJECT", "TASK", "TAGS", "START", "END", "DURATION", "BILLABLE"}, rows))
 		return nil
 	}
 
@@ -232,9 +267,14 @@ func runBatch(cmd *cobra.Command, path string) error {
 		return err
 	}
 
-	// Resolve every distinct project name to an ID once (served from the
-	// 15-minute project cache) — still before the first write request.
+	// Resolve every distinct project, tag, and task reference to an ID once
+	// (projects come from the 15-minute cache) — still before the first
+	// write request.
 	projectIDs, err := resolveProjectRefs(ctx, client, workspaceID, entries)
+	if err != nil {
+		return fmt.Errorf("no entries were logged: %w", err)
+	}
+	tagIDs, taskIDs, err := resolveBatchRefs(ctx, client, workspaceID, projectIDs, entries)
 	if err != nil {
 		return fmt.Errorf("no entries were logged: %w", err)
 	}
@@ -250,7 +290,7 @@ func runBatch(cmd *cobra.Command, path string) error {
 	var failed []batchFailure
 	if err := runWithSpinner(fmt.Sprintf("Logging %d entries…", len(entries)), func() error {
 		// Failures are collected per entry rather than aborting the batch.
-		failed = executeBatch(ctx, client, workspaceID, entries, projectIDs, concurrency)
+		failed = executeBatch(ctx, client, workspaceID, entries, projectIDs, tagIDs, taskIDs, concurrency)
 		return nil
 	}); err != nil {
 		return err
@@ -293,6 +333,84 @@ func resolveProjectRefs(ctx context.Context, client *clockify.Client, workspaceI
 	return ids, nil
 }
 
+// resolveBatchRefs resolves every distinct tag and task reference once.
+// Tag refs are workspace-wide (one tag-list fetch); task refs are scoped to
+// each entry's project (one task-list fetch per distinct project). The
+// returned maps key on the refs as written: tag ref → tag ID, and
+// "projectID|task ref" → task ID.
+func resolveBatchRefs(
+	ctx context.Context,
+	client *clockify.Client,
+	workspaceID string,
+	projectIDs map[string]string,
+	entries []resolvedEntry,
+) (map[string]string, map[string]string, error) {
+	tagRefs := distinctRefs(entries, func(e resolvedEntry) []string { return e.Tags })
+	tagIDs := map[string]string{}
+	if len(tagRefs) > 0 {
+		tags, err := client.GetTags(ctx, workspaceID, clockify.TagListParams{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolve tags: %w", err)
+		}
+		for _, ref := range tagRefs {
+			id, err := matchTagRef(tags, ref)
+			if err != nil {
+				return nil, nil, err
+			}
+			tagIDs[ref] = id
+		}
+	}
+
+	taskIDs := map[string]string{}
+	taskList := map[string][]clockify.Task{} // projectID → its tasks, fetched once
+	for _, e := range entries {
+		if e.Task == "" {
+			continue
+		}
+		projectID := projectIDs[e.Project]
+		if projectID == "" {
+			return nil, nil, fmt.Errorf("entry %q: task requires a project", truncate(e.Description, 30))
+		}
+		key := projectID + "|" + e.Task
+		if _, done := taskIDs[key]; done {
+			continue
+		}
+		tasks, ok := taskList[projectID]
+		if !ok {
+			var err error
+			tasks, err = client.GetTasks(ctx, workspaceID, projectID, clockify.TaskListParams{})
+			if err != nil {
+				return nil, nil, fmt.Errorf("resolve tasks: %w", err)
+			}
+			taskList[projectID] = tasks
+		}
+		id, err := matchTaskRef(tasks, e.Task)
+		if err != nil {
+			return nil, nil, fmt.Errorf("entry %q: %w", truncate(e.Description, 30), err)
+		}
+		taskIDs[key] = id
+	}
+	return tagIDs, taskIDs, nil
+}
+
+// distinctRefs returns each distinct trimmed, non-empty ref across entries
+// in first-seen order.
+func distinctRefs(entries []resolvedEntry, pick func(resolvedEntry) []string) []string {
+	var refs []string
+	seen := map[string]bool{}
+	for _, e := range entries {
+		for _, r := range pick(e) {
+			r = strings.TrimSpace(r)
+			if r == "" || seen[r] {
+				continue
+			}
+			seen[r] = true
+			refs = append(refs, r)
+		}
+	}
+	return refs
+}
+
 // executeBatch posts the entries with bounded concurrency and returns the
 // failures (continuing past errors so one bad entry doesn't sink the batch).
 func executeBatch(
@@ -301,6 +419,8 @@ func executeBatch(
 	workspaceID string,
 	entries []resolvedEntry,
 	projectIDs map[string]string,
+	tagIDs map[string]string,
+	taskIDs map[string]string,
 	concurrency int,
 ) []batchFailure {
 	failures := make([]batchFailure, len(entries))
@@ -320,6 +440,8 @@ func executeBatch(
 				End:         clockify.Ptr(e.End),
 				ProjectID:   projectIDs[e.Project],
 				Billable:    e.Billable,
+				TaskID:      batchTaskID(taskIDs, projectIDs, e),
+				TagIDs:      batchTagIDs(tagIDs, e.Tags),
 			})
 			if err != nil {
 				failures[idx] = batchFailure{index: idx, description: e.Description, err: err}
@@ -335,4 +457,28 @@ func executeBatch(
 		}
 	}
 	return failed
+}
+
+// batchTaskID returns the resolved task ID for an entry ("" when none).
+func batchTaskID(taskIDs, projectIDs map[string]string, e resolvedEntry) string {
+	if e.Task == "" {
+		return ""
+	}
+	return taskIDs[projectIDs[e.Project]+"|"+e.Task]
+}
+
+// batchTagIDs maps an entry's tag refs to IDs, preserving order and
+// dropping duplicates.
+func batchTagIDs(tagIDs map[string]string, refs []string) []string {
+	var ids []string
+	seen := map[string]bool{}
+	for _, r := range refs {
+		id := tagIDs[strings.TrimSpace(r)]
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	return ids
 }

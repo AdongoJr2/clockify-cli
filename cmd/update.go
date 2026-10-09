@@ -21,6 +21,8 @@ var updateFlags struct {
 	end         string
 	duration    string
 	project     string
+	tags        []string
+	task        string
 	billable    bool
 }
 
@@ -39,6 +41,8 @@ Examples:
   clockify update 5a0ab5acb0798751107918ab -d "Renamed task"
   clockify update 5a0ab5acb0798751107918ab --start "09:00" --end "11:00"
   clockify update 5a0ab5acb0798751107918ab --start "14:00" --duration 2h -p "Backend API"
+  clockify update 5a0ab5acb0798751107918ab --tag dev,review --task "Fix login"
+  clockify update 5a0ab5acb0798751107918ab --tag ""   # remove all tags
   clockify update                              # pick an entry, edit via form`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runUpdate,
@@ -50,6 +54,8 @@ func init() {
 	updateCmd.Flags().StringVar(&updateFlags.end, "end", "", "new end time")
 	updateCmd.Flags().StringVar(&updateFlags.duration, "duration", "", `new duration instead of --end (e.g. "1h30m")`)
 	updateCmd.Flags().StringVarP(&updateFlags.project, "project", "p", "", "project name or ID")
+	updateCmd.Flags().StringSliceVar(&updateFlags.tags, "tag", nil, "replace the entry's tags by name or ID (repeatable; --tag \"\" clears)")
+	updateCmd.Flags().StringVar(&updateFlags.task, "task", "", "set the entry's task by name or ID (--task \"\" clears; needs a project)")
 	updateCmd.Flags().BoolVar(&updateFlags.billable, "billable", true, "mark the entry as billable")
 }
 
@@ -71,6 +77,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		"end":         cmd.Flags().Changed("end"),
 		"duration":    cmd.Flags().Changed("duration"),
 		"project":     cmd.Flags().Changed("project"),
+		"tag":         cmd.Flags().Changed("tag"),
+		"task":        cmd.Flags().Changed("task"),
 		"billable":    cmd.Flags().Changed("billable"),
 	}
 	endStr := strings.TrimSpace(updateFlags.end)
@@ -106,7 +114,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	// 3. No flags in a terminal → interactive form preloaded with current values.
 	if !anyChanged(changed) {
 		if !isInteractive() {
-			return errors.New("provide at least one flag (--description, --start, --end, --duration, --project, --billable) or run in a terminal to edit interactively")
+			return errors.New("provide at least one flag (--description, --start, --end, --duration, --project, --tag, --task, --billable) or run in a terminal to edit interactively")
 		}
 		if err := runUpdateForm(ctx, client, workspaceID, existing, changed); err != nil {
 			return err
@@ -167,6 +175,48 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		billable = updateFlags.billable
 	}
 
+	// Tags and task: explicit flags replace the current values. Changing
+	// the project without --task clears the task (it belonged to the old
+	// project).
+	tagIDs := existing.TagIDs
+	if changed["tag"] {
+		tagIDs, err = resolveTagRefs(ctx, client, workspaceID, updateFlags.tags)
+		if err != nil {
+			return err
+		}
+	}
+	taskID := existing.TaskID
+	switch {
+	case changed["task"]:
+		if strings.TrimSpace(updateFlags.task) == "" {
+			taskID = "" // explicit empty value clears the task
+		} else if projectID == "" {
+			return errors.New("--task requires a project — set one with --project")
+		} else {
+			taskID, err = resolveTaskRef(ctx, client, workspaceID, projectID, updateFlags.task)
+			if err != nil {
+				return err
+			}
+		}
+	case changed["project"] && projectID != existing.EffectiveProjectID():
+		taskID = "" // the old task belongs to the previous project
+	}
+
+	// Tags and task are sent as explicit pointers only when they changed or
+	// are non-empty: an explicit empty value clears them, while an untouched
+	// entry without either sends nothing new.
+	var taskOut *string
+	if changed["task"] || taskID != "" {
+		taskOut = clockify.Ptr(taskID)
+	}
+	var tagsOut *[]string
+	if changed["tag"] || len(tagIDs) > 0 {
+		if tagIDs == nil {
+			tagIDs = []string{}
+		}
+		tagsOut = clockify.Ptr(tagIDs)
+	}
+
 	// 5. Persist the full merged state (PUT requires start; sending every
 	// field makes the result deterministic regardless of server semantics).
 	err = runWithSpinner("Saving changes…", func() error {
@@ -176,6 +226,8 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 			End:         endT,
 			ProjectID:   projectID,
 			Billable:    clockify.Ptr(billable),
+			TaskID:      taskOut,
+			TagIDs:      tagsOut,
 		})
 		return err
 	})
@@ -293,6 +345,9 @@ func runUpdateForm(ctx context.Context, client *clockify.Client, workspaceID str
 	updateFlags.project = selected.id
 	updateFlags.billable = billable
 	for k := range changed {
+		if k == "tag" || k == "task" {
+			continue // the form does not edit tags or tasks
+		}
 		changed[k] = true
 	}
 	return nil

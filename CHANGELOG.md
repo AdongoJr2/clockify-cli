@@ -12,6 +12,21 @@ concise and user-facing.
 
 ### Added
 
+- `clockify tags`: list workspace tags (name, ID, active/archived), create
+  with `--add`, delete with `--delete` (confirmed, `--yes` to skip), and
+  filter server-side by name.
+- `clockify tasks`: list a project's tasks with status and estimate, create
+  with `--add` (`--estimate 2h`, `--status`), mark done with `--done`, and
+  delete with `--delete` — `--project` picks the project (or choose one
+  interactively).
+- `--tag` (repeatable/comma-separated) and `--task` on `clockify log`,
+  `start`, and `update` attach tags and tasks to entries by name or ID.
+  Names resolve with the same exact-then-substring matching as `--project`,
+  failing fast — before any write — on unknown or ambiguous references.
+  On `update`, `--tag ""`/`--task ""` clear the values, and changing the
+  project clears a task that belonged to the old project.
+- Batch entries accept `task:` and `tags:`; references resolve once, before
+  the first request, and `--dry-run` shows them as TASK/TAGS columns.
 - `clockify duplicate [entry-id]`: copy a time entry ("do it again") by ID or
   by picking from recent entries. The copy keeps everything; edit it after
   with `clockify update`.

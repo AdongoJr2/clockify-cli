@@ -116,3 +116,99 @@ func formatDuration(d time.Duration) string {
 func formatClock(t time.Time) string {
 	return t.Local().Format("02 Jan 15:04")
 }
+
+// toISODuration renders d as the ISO-8601 duration Clockify expects for task
+// estimates (e.g. "PT4H", "PT1H30M"). Returns "" for non-positive durations.
+func toISODuration(d time.Duration) string {
+	if d <= 0 {
+		return ""
+	}
+	d = d.Round(time.Minute)
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	switch {
+	case h > 0 && m > 0:
+		return fmt.Sprintf("PT%dH%dM", h, m)
+	case h > 0:
+		return fmt.Sprintf("PT%dH", h)
+	default:
+		return fmt.Sprintf("PT%dM", m)
+	}
+}
+
+// parseISODuration parses the ISO-8601 durations Clockify returns for task
+// estimates and tracked time, e.g. "PT45M", "PT1H30M", "P1DT2H".
+func parseISODuration(s string) (time.Duration, error) {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	if len(s) < 2 || s[0] != 'P' {
+		return 0, fmt.Errorf("unrecognized ISO-8601 duration %q", s)
+	}
+	s = s[1:]
+
+	var total time.Duration
+	var num int
+	seen := false
+	inTime := false
+	consumed := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= '0' && c <= '9':
+			num = num*10 + int(c-'0')
+			seen = true
+		case c == 'T':
+			if inTime || seen {
+				return 0, fmt.Errorf("unrecognized ISO-8601 duration")
+			}
+			inTime = true
+		default:
+			if !seen {
+				return 0, fmt.Errorf("unrecognized ISO-8601 duration")
+			}
+			var unit time.Duration
+			switch c {
+			case 'W':
+				unit = 7 * 24 * time.Hour
+			case 'D':
+				if inTime {
+					return 0, fmt.Errorf("unrecognized ISO-8601 duration")
+				}
+				unit = 24 * time.Hour
+			case 'H', 'M', 'S':
+				if !inTime {
+					return 0, fmt.Errorf("unrecognized ISO-8601 duration")
+				}
+				switch c {
+				case 'H':
+					unit = time.Hour
+				case 'M':
+					unit = time.Minute
+				default:
+					unit = time.Second
+				}
+			default:
+				return 0, fmt.Errorf("unrecognized ISO-8601 duration")
+			}
+			total += time.Duration(num) * unit
+			num, seen = 0, false
+			consumed = true
+		}
+	}
+	if seen || !consumed {
+		return 0, fmt.Errorf("unrecognized ISO-8601 duration")
+	}
+	return total, nil
+}
+
+// formatISODuration renders an ISO-8601 duration for display ("PT1H30M" →
+// "1h 30m"), falling back to the raw string when it cannot be parsed.
+func formatISODuration(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	d, err := parseISODuration(s)
+	if err != nil {
+		return s
+	}
+	return formatDuration(d)
+}

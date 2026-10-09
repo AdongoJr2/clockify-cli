@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -484,5 +485,246 @@ func TestDuplicateTimeEntry(t *testing.T) {
 	}
 	if strings.TrimSpace(gotBody) != "" {
 		t.Errorf("duplicate takes no body, sent %q", gotBody)
+	}
+}
+
+func TestGetTags(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`[{"id":"t1","name":"deep-work","archived":false},
+			{"id":"t3","name":"legacy","archived":true}]`))
+	}))
+	defer server.Close()
+
+	tags, err := NewClient(server.URL, "k").GetTags(context.Background(), "w1", TagListParams{
+		Name: "deep", StrictNameSearch: true, Archived: Ptr(true), PageSize: 50,
+	})
+	if err != nil {
+		t.Fatalf("GetTags: %v", err)
+	}
+	if len(tags) != 2 || tags[0].ID != "t1" || !tags[1].Archived {
+		t.Errorf("unexpected tags: %+v", tags)
+	}
+	if gotMethod != http.MethodGet {
+		t.Errorf("method = %s, want GET", gotMethod)
+	}
+	for _, want := range []string{"name=deep", "strict-name-search=true", "archived=true", "page=1", "page-size=50"} {
+		if !strings.Contains(gotQuery, want) {
+			t.Errorf("query %q missing %q", gotQuery, want)
+		}
+	}
+}
+
+func TestCreateTag(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"t9","name":"deep-work","workspaceId":"w1"}`))
+	}))
+	defer server.Close()
+
+	tag, err := NewClient(server.URL, "k").CreateTag(context.Background(), "w1", CreateTagRequest{Name: "deep-work"})
+	if err != nil {
+		t.Fatalf("CreateTag: %v", err)
+	}
+	if tag.ID != "t9" || tag.Name != "deep-work" {
+		t.Errorf("unexpected tag: %+v", tag)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %s, want POST", gotMethod)
+	}
+	if want := "/workspaces/w1/tags"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+	if !strings.Contains(gotBody, `"name":"deep-work"`) {
+		t.Errorf("body = %q, want the tag name", gotBody)
+	}
+}
+
+func TestDeleteTag(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var calls []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"t1","name":"renamed","archived":true,"workspaceId":"w1"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "k")
+	tag, err := client.GetTag(context.Background(), "w1", "t1")
+	if err != nil {
+		t.Fatalf("GetTag: %v", err)
+	}
+	if tag.ID != "t1" {
+		t.Errorf("tag.ID = %q, want t1", tag.ID)
+	}
+	renamed, err := client.UpdateTag(context.Background(), "w1", "t1", UpdateTagRequest{
+		Name: Ptr("renamed"), Archived: Ptr(true),
+	})
+	if err != nil {
+		t.Fatalf("UpdateTag: %v", err)
+	}
+	if renamed.Name != "renamed" || !renamed.Archived {
+		t.Errorf("unexpected updated tag: %+v", renamed)
+	}
+	if err := client.DeleteTag(context.Background(), "w1", "t1"); err != nil {
+		t.Fatalf("DeleteTag: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		"GET /workspaces/w1/tags/t1",
+		"PUT /workspaces/w1/tags/t1",
+		"DELETE /workspaces/w1/tags/t1",
+	}
+	if len(calls) != len(want) {
+		t.Fatalf("calls = %v, want %v", calls, want)
+	}
+	for i := range want {
+		if calls[i] != want[i] {
+			t.Errorf("call %d = %q, want %q", i, calls[i], want[i])
+		}
+	}
+}
+
+func TestGetTasks(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath, gotQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotQuery = r.URL.RawQuery
+		_, _ = w.Write([]byte(`[{"id":"k1","name":"Fix login","projectId":"p1","status":"ACTIVE"}]`))
+	}))
+	defer server.Close()
+
+	tasks, err := NewClient(server.URL, "k").GetTasks(context.Background(), "w1", "p1", TaskListParams{
+		Name: "login", IsActive: Ptr(true), PageSize: 25,
+	})
+	if err != nil {
+		t.Fatalf("GetTasks: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "k1" || tasks[0].Status != TaskStatusActive {
+		t.Errorf("unexpected tasks: %+v", tasks)
+	}
+	if gotMethod != http.MethodGet {
+		t.Errorf("method = %s, want GET", gotMethod)
+	}
+	if want := "/workspaces/w1/projects/p1/tasks"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+	for _, want := range []string{"name=login", "is-active=true", "page-size=25"} {
+		if !strings.Contains(gotQuery, want) {
+			t.Errorf("query %q missing %q", gotQuery, want)
+		}
+	}
+}
+
+func TestCreateTask(t *testing.T) {
+	t.Parallel()
+
+	var gotMethod, gotPath, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		raw, _ := io.ReadAll(r.Body)
+		gotBody = string(raw)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"k9","name":"Fix login","projectId":"p1","status":"ACTIVE","estimate":"PT2H"}`))
+	}))
+	defer server.Close()
+
+	task, err := NewClient(server.URL, "k").CreateTask(context.Background(), "w1", "p1", CreateTaskRequest{
+		Name: "Fix login", Estimate: "PT2H",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if task.ID != "k9" || task.Estimate != "PT2H" {
+		t.Errorf("unexpected task: %+v", task)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %s, want POST", gotMethod)
+	}
+	if want := "/workspaces/w1/projects/p1/tasks"; gotPath != want {
+		t.Errorf("path = %q, want %q", gotPath, want)
+	}
+	for _, want := range []string{`"name":"Fix login"`, `"estimate":"PT2H"`} {
+		if !strings.Contains(gotBody, want) {
+			t.Errorf("body %q missing %q", gotBody, want)
+		}
+	}
+}
+
+func TestUpdateAndDeleteTask(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var calls []string
+	var lastBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, r.Method+" "+r.URL.Path)
+		if r.Method == http.MethodPut {
+			lastBody = string(raw)
+		}
+		mu.Unlock()
+		if r.Method == http.MethodDelete {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_, _ = w.Write([]byte(`{"id":"k1","name":"Fix login","projectId":"p1","status":"DONE"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, "k")
+	task, err := client.UpdateTask(context.Background(), "w1", "p1", "k1", UpdateTaskRequest{
+		Name: "Fix login", Status: TaskStatusDone,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+	if task.Status != TaskStatusDone {
+		t.Errorf("task.Status = %q, want DONE", task.Status)
+	}
+	if err := client.DeleteTask(context.Background(), "w1", "p1", "k1"); err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %v, want PUT then DELETE", calls)
+	}
+	if want := "PUT /workspaces/w1/projects/p1/tasks/k1"; calls[0] != want {
+		t.Errorf("first call = %q, want %q", calls[0], want)
+	}
+	if want := "DELETE /workspaces/w1/projects/p1/tasks/k1"; calls[1] != want {
+		t.Errorf("second call = %q, want %q", calls[1], want)
+	}
+	// Name is required by the API's update contract.
+	if !strings.Contains(lastBody, `"name":"Fix login"`) || !strings.Contains(lastBody, `"status":"DONE"`) {
+		t.Errorf("update body = %q", lastBody)
 	}
 }

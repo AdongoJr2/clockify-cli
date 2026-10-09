@@ -25,6 +25,14 @@ entries:
     start: "2026-10-05T14:00:00+02:00"
     duration: 1h30m
 
+  # Tags and a task by name (or ID) — the task needs a project on the entry
+  # (here inherited from default-project).
+  - description: Fix login bug
+    start: "13:00"
+    duration: 45m
+    task: Fix login
+    tags: [deep-work, review]
+
   # No project key and no default-project → logged without a project.
   - description: Reading / research
     start: "16:00"

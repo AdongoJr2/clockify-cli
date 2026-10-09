@@ -303,3 +303,104 @@ entries:
 		t.Errorf("unresolved project must abort before any POST, got %d", got)
 	}
 }
+
+func TestBatchWithTagsAndTask(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+	path := writeBatchFile(t, `
+default-project: Website Redesign
+entries:
+  - description: Login fix
+    start: "09:00"
+    duration: 1h
+    task: Fix login
+    tags: [deep-work, review]
+  - description: Plain work
+    start: "10:00"
+    duration: 30m
+`)
+
+	out, err := runCLI(t, "log", "--batch", path)
+	if err != nil {
+		t.Fatalf("batch log: %v", err)
+	}
+	if !strings.Contains(out, "Logged 2 entries") {
+		t.Errorf("output missing success line:\n%s", out)
+	}
+
+	req, ok := mock.findByDescription(http.MethodPost, "Login fix")
+	if !ok {
+		t.Fatal("no POST for the 'Login fix' entry recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["taskId"] != "k1" {
+		t.Errorf("taskId = %v, want k1 (resolved from task name)", body["taskId"])
+	}
+	if body["projectId"] != "p1" {
+		t.Errorf("projectId = %v, want p1 (from default-project)", body["projectId"])
+	}
+	tagIDs, _ := body["tagIds"].([]any)
+	if len(tagIDs) != 2 || tagIDs[0] != "t1" || tagIDs[1] != "t2" {
+		t.Errorf("tagIds = %v, want [t1 t2] (resolved from tag names)", tagIDs)
+	}
+
+	// The entry without tags/task must not gain any.
+	plain, ok := mock.findByDescription(http.MethodPost, "Plain work")
+	if !ok {
+		t.Fatal("no POST for the 'Plain work' entry recorded")
+	}
+	var plainBody map[string]any
+	if err := json.Unmarshal([]byte(plain.Body), &plainBody); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if _, present := plainBody["tagIds"]; present {
+		t.Errorf("entry without tags should omit tagIds, got %v", plainBody["tagIds"])
+	}
+	if _, present := plainBody["taskId"]; present {
+		t.Errorf("entry without a task should omit taskId, got %v", plainBody["taskId"])
+	}
+}
+
+func TestBatchTaskRequiresProjectAtValidation(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+	path := writeBatchFile(t, `
+entries:
+  - description: Orphan task
+    start: "09:00"
+    duration: 1h
+    task: Fix login
+`)
+
+	_, err := runCLI(t, "log", "--batch", path)
+	if err == nil || !strings.Contains(err.Error(), "task requires a project") {
+		t.Fatalf("err = %v, want 'task requires a project'", err)
+	}
+	if got := mock.countRequests(http.MethodPost); got != 0 {
+		t.Errorf("invalid batch sent %d POSTs, want 0", got)
+	}
+}
+
+func TestBatchUnknownTagAbortsBeforeSending(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+	path := writeBatchFile(t, `
+entries:
+  - description: Tagged
+    start: "09:00"
+    duration: 1h
+    project: Website Redesign
+    tags: [nope]
+`)
+
+	_, err := runCLI(t, "log", "--batch", path)
+	if err == nil || !strings.Contains(err.Error(), "no tag matches") {
+		t.Fatalf("err = %v, want 'no tag matches'", err)
+	}
+	if got := mock.countRequests(http.MethodPost); got != 0 {
+		t.Errorf("unresolved tag must abort before any POST, got %d", got)
+	}
+}

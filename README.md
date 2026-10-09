@@ -126,6 +126,17 @@ clockify projects --archived               # archived only
 clockify projects -p "Website"             # server-side name filter
 clockify projects -p "Website" --exact     # exact name match
 
+clockify tags                              # list tags
+clockify tags --add "deep-work"            # create a tag
+clockify tags --delete "legacy" --yes      # delete by name or ID
+
+clockify tasks -p "Website Redesign"       # list a project's tasks
+clockify tasks -p "Website" --add "Fix login" --estimate 2h
+clockify tasks -p "Website" --done "Fix login"      # mark a task done
+
+clockify log -d "Fix login" --start 09:00 --duration 2h \
+  -p "Website" --tag deep-work,review --task "Fix login"   # attach tags/task
+
 clockify duplicate                 # "do it again": pick a recent entry, copy it
 clockify duplicate <entry-id>      # copy a specific entry, keeps everything
 
@@ -153,6 +164,8 @@ entries:
     start: "09:30"                 # "14:00", "2026-10-05 14:00", or RFC3339
     duration: 15m                   # ... or end: "09:45" (never both)
     project: Backend API            # optional; project name or ID
+    task: Fix login                 # optional; task name or ID (needs project)
+    tags: [deep-work, review]       # optional; tag names or IDs
     billable: false                 # optional; omit to use the project default
 ```
 
@@ -166,6 +179,8 @@ A ready-to-edit example lives in [`examples/entries.yaml`](examples/entries.yaml
 - Each entry needs a description, a start, and exactly one of end/duration
 - Project names are resolved **before** the first write; an unknown project aborts
   the whole batch ("no entries were logged")
+- Tag and task references resolve the same way — one list fetch each, still
+  before the first write
 - `--dry-run` needs no API credentials at all — it just validates and prints a plan
 
 **Execution:**
@@ -224,6 +239,43 @@ Only `--archived` filters server-side; `--active` is screened client-side
 (the Clockify API has no "active only" filter). `-p` runs the same
 server-side name search you can rely on when picking projects by name —
 use `--exact` when you need an unambiguous match.
+
+### Tags & tasks
+
+`clockify tags` and `clockify tasks` manage the two fields entries can carry
+besides a project. Attach them anywhere an entry is created or edited with
+`--tag` (repeatable or comma-separated) and `--task` — names or IDs, resolved
+with the same exact-then-substring matching used for projects:
+
+```bash
+clockify tags                              # name, ID, active/archived
+clockify tags -t "deep" [--exact]           # server-side name filter
+clockify tags --archived                   # archived only
+clockify tags --add "deep-work"            # create
+clockify tags --delete "deep-work"         # delete (confirm; --yes to skip)
+
+clockify tasks -p "Website Redesign"       # tasks of a project
+clockify tasks -p "Website" --active       # active tasks only
+clockify tasks -p "Website" -t "Fix"       # server-side name filter
+clockify tasks -p "Website" --add "Fix login" --estimate 2h
+clockify tasks -p "Website" --done "Fix login"       # mark done
+clockify tasks -p "Website" --delete "Fix login" --yes
+
+clockify log -d "Fix login" --start 09:00 --duration 2h \
+  -p "Website" --tag deep-work,review --task "Fix login"
+clockify start -d "Fix login" -p "Website" --tag review
+clockify update <entry-id> --tag review --task "Fix login"
+clockify update <entry-id> --tag ""        # remove all tags
+```
+
+Notes:
+
+- `--task` always needs a project (Clockify tasks live inside a project);
+  changing an entry's project clears its task unless you pass `--task` again.
+- Unknown or ambiguous names fail **before** anything is written, listing the
+  matches so you can refine the reference.
+- Batch files take the same references: `task: Fix login` and
+  `tags: [deep-work, review]` per entry (resolved once, before posting).
 
 ### Deleting entries
 

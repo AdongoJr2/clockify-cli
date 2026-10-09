@@ -16,6 +16,8 @@ import (
 var startFlags struct {
 	description string
 	project     string
+	tags        []string
+	task        string
 }
 
 var startCmd = &cobra.Command{
@@ -28,6 +30,7 @@ If a timer is already running you'll be asked whether to stop it first
 
 Examples:
   clockify start -d "Writing docs" -p "Website Redesign"
+  clockify start -d "Fix login" -p "Website" --tag dev --task "Fix login"
   clockify start                              # interactive form`,
 	Args: cobra.NoArgs,
 	RunE: runStart,
@@ -36,6 +39,8 @@ Examples:
 func init() {
 	startCmd.Flags().StringVarP(&startFlags.description, "description", "d", "", "what you're working on")
 	startCmd.Flags().StringVarP(&startFlags.project, "project", "p", "", "project name or ID (optional)")
+	startCmd.Flags().StringSliceVar(&startFlags.tags, "tag", nil, "attach tags by name or ID (repeatable or comma-separated)")
+	startCmd.Flags().StringVar(&startFlags.task, "task", "", "attach a task by name or ID (needs --project)")
 }
 
 func runStart(cmd *cobra.Command, _ []string) error {
@@ -95,10 +100,29 @@ func runStart(cmd *cobra.Command, _ []string) error {
 		if err != nil {
 			return err
 		}
+		var tagIDs []string
+		if len(startFlags.tags) > 0 {
+			tagIDs, err = resolveTagRefs(ctx, client, workspaceID, startFlags.tags)
+			if err != nil {
+				return err
+			}
+		}
+		taskID := ""
+		if ref := strings.TrimSpace(startFlags.task); ref != "" {
+			if projectID == "" {
+				return errors.New("--task requires a project (add -p/--project)")
+			}
+			taskID, err = resolveTaskRef(ctx, client, workspaceID, projectID, ref)
+			if err != nil {
+				return err
+			}
+		}
 		_, err = client.CreateTimeEntry(ctx, workspaceID, clockify.CreateTimeEntryRequest{
 			Description: description,
 			Start:       clockify.Ptr(time.Now()),
 			ProjectID:   projectID,
+			TagIDs:      tagIDs,
+			TaskID:      taskID,
 		})
 		return err
 	})

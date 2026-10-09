@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -29,6 +30,10 @@ type mockClockify struct {
 	requests []mockRequest
 	running  []clockify.TimeEntry
 	entries  []clockify.TimeEntry
+	tags     []map[string]any
+	tasks    []map[string]any
+	tagSeq   int
+	taskSeq  int
 }
 
 func newMockClockify(t *testing.T) *mockClockify {
@@ -50,6 +55,16 @@ func newMockClockify(t *testing.T) *mockClockify {
 					End:   ptrTime(time.Date(2026, 10, 5, 8, 45, 0, 0, time.UTC)),
 				},
 			},
+		},
+		tags: []map[string]any{
+			{"id": "t1", "name": "deep-work", "workspaceId": "w1"},
+			{"id": "t2", "name": "review", "workspaceId": "w1"},
+			{"id": "t3", "name": "legacy", "workspaceId": "w1", "archived": true},
+		},
+		tasks: []map[string]any{
+			{"id": "k1", "name": "Fix login", "projectId": "p1", "status": "ACTIVE", "estimate": "PT2H"},
+			{"id": "k2", "name": "Write docs", "projectId": "p1", "status": "ACTIVE"},
+			{"id": "k3", "name": "Design review", "projectId": "p1", "status": "DONE"},
 		},
 	}
 	m.server = httptest.NewServer(http.HandlerFunc(m.handle))
@@ -121,7 +136,7 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 
 	m.mu.Lock()
 	m.requests = append(m.requests, mockRequest{Method: r.Method, Path: r.URL.Path, Query: r.URL.RawQuery, Body: string(raw)})
-	running, entries := m.running, m.entries
+	running, entries, tags, tasks := m.running, m.entries, m.tags, m.tasks
 	m.mu.Unlock()
 
 	writeJSON := func(v any, status int) {
@@ -158,6 +173,181 @@ func (m *mockClockify) handle(w http.ResponseWriter, r *http.Request) {
 			out = append(out, it)
 		}
 		writeJSON(out, 200)
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/tags"):
+		// Workspace tags: ?name= substring filter (strict-name-search for
+		// exact), ?archived=true returns archived tags only.
+		q := r.URL.Query()
+		var out []map[string]any
+		for _, it := range tags {
+			name, _ := it["name"].(string)
+			if needle := q.Get("name"); needle != "" {
+				if q.Get("strict-name-search") == "true" {
+					if !strings.EqualFold(name, needle) {
+						continue
+					}
+				} else if !strings.Contains(strings.ToLower(name), strings.ToLower(needle)) {
+					continue
+				}
+			}
+			if q.Get("archived") == "true" {
+				if arch, _ := it["archived"].(bool); !arch {
+					continue
+				}
+			}
+			out = append(out, it)
+		}
+		writeJSON(out, 200)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/tags"):
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		name, _ := body["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			writeJSON(map[string]any{"message": "name is required"}, 400)
+			return
+		}
+		m.mu.Lock()
+		m.tagSeq++
+		tag := map[string]any{"id": fmt.Sprintf("t%d", m.tagSeq), "name": name, "workspaceId": "w1"}
+		m.tags = append(m.tags, tag)
+		m.mu.Unlock()
+		writeJSON(tag, 201)
+	case r.Method == http.MethodGet && strings.Contains(path, "/tags/"):
+		id := path[strings.LastIndex(path, "/")+1:]
+		for _, it := range tags {
+			if it["id"] == id {
+				writeJSON(it, 200)
+				return
+			}
+		}
+		writeJSON(map[string]any{"message": "tag not found"}, 404)
+	case (r.Method == http.MethodPut || r.Method == http.MethodDelete) && strings.Contains(path, "/tags/"):
+		id := path[strings.LastIndex(path, "/")+1:]
+		m.mu.Lock()
+		idx := -1
+		for i := range m.tags {
+			if m.tags[i]["id"] == id {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			m.mu.Unlock()
+			writeJSON(map[string]any{"message": "tag not found"}, 404)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			m.tags = append(m.tags[:idx], m.tags[idx+1:]...)
+			m.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if v, ok := body["name"].(string); ok && strings.TrimSpace(v) != "" {
+			m.tags[idx]["name"] = v
+		}
+		if v, ok := body["archived"].(bool); ok {
+			m.tags[idx]["archived"] = v
+		}
+		updated := m.tags[idx]
+		m.mu.Unlock()
+		writeJSON(updated, 200)
+	case r.Method == http.MethodGet && strings.HasSuffix(path, "/tasks"):
+		// Project tasks: /workspaces/{ws}/projects/{pid}/tasks with
+		// ?name= (substring / strict) and ?is-active=true filters.
+		segments := strings.Split(strings.Trim(path, "/"), "/")
+		pid := segments[len(segments)-2]
+		q := r.URL.Query()
+		var out []map[string]any
+		for _, it := range tasks {
+			if it["projectId"] != pid {
+				continue
+			}
+			name, _ := it["name"].(string)
+			if needle := q.Get("name"); needle != "" {
+				if q.Get("strict-name-search") == "true" {
+					if !strings.EqualFold(name, needle) {
+						continue
+					}
+				} else if !strings.Contains(strings.ToLower(name), strings.ToLower(needle)) {
+					continue
+				}
+			}
+			if q.Get("is-active") == "true" && it["status"] != "ACTIVE" {
+				continue
+			}
+			out = append(out, it)
+		}
+		writeJSON(out, 200)
+	case r.Method == http.MethodPost && strings.HasSuffix(path, "/tasks"):
+		segments := strings.Split(strings.Trim(path, "/"), "/")
+		pid := segments[len(segments)-2]
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		name, _ := body["name"].(string)
+		if strings.TrimSpace(name) == "" {
+			writeJSON(map[string]any{"message": "name is required"}, 400)
+			return
+		}
+		m.mu.Lock()
+		m.taskSeq++
+		task := map[string]any{
+			"id": fmt.Sprintf("k%d", m.taskSeq), "name": name,
+			"projectId": pid, "status": "ACTIVE",
+		}
+		if v, ok := body["status"].(string); ok && v != "" {
+			task["status"] = v
+		}
+		if v, ok := body["estimate"].(string); ok && v != "" {
+			task["estimate"] = v
+		}
+		m.tasks = append(m.tasks, task)
+		m.mu.Unlock()
+		writeJSON(task, 201)
+	case r.Method == http.MethodGet && strings.Contains(path, "/tasks/"):
+		id := path[strings.LastIndex(path, "/")+1:]
+		for _, it := range tasks {
+			if it["id"] == id {
+				writeJSON(it, 200)
+				return
+			}
+		}
+		writeJSON(map[string]any{"message": "task not found"}, 404)
+	case (r.Method == http.MethodPut || r.Method == http.MethodDelete) && strings.Contains(path, "/tasks/"):
+		id := path[strings.LastIndex(path, "/")+1:]
+		m.mu.Lock()
+		idx := -1
+		for i := range m.tasks {
+			if m.tasks[i]["id"] == id {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			m.mu.Unlock()
+			writeJSON(map[string]any{"message": "task not found"}, 404)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			m.tasks = append(m.tasks[:idx], m.tasks[idx+1:]...)
+			m.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		if v, ok := body["name"].(string); ok && strings.TrimSpace(v) != "" {
+			m.tasks[idx]["name"] = v
+		}
+		if v, ok := body["status"].(string); ok && v != "" {
+			m.tasks[idx]["status"] = v
+		}
+		if v, ok := body["estimate"].(string); ok && v != "" {
+			m.tasks[idx]["estimate"] = v
+		}
+		updated := m.tasks[idx]
+		m.mu.Unlock()
+		writeJSON(updated, 200)
 	case r.Method == http.MethodGet && strings.HasSuffix(path, "/time-entries/status/in-progress"):
 		writeJSON(running, 200)
 	case r.Method == http.MethodGet && strings.Contains(path, "/time-entries/"):

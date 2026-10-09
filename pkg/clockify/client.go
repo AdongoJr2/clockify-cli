@@ -305,6 +305,151 @@ func (c *Client) UpdateTimeEntry(ctx context.Context, workspaceID, entryID strin
 	return &entry, nil
 }
 
+// GetTags lists workspace tags, following pagination (up to 50 pages as a
+// safety bound).
+func (c *Client) GetTags(ctx context.Context, workspaceID string, params TagListParams) ([]Tag, error) {
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	var all []Tag
+	for page := 1; page <= 50; page++ {
+		query := url.Values{
+			"page":      {strconv.Itoa(page)},
+			"page-size": {strconv.Itoa(pageSize)},
+		}
+		if params.Name != "" {
+			query.Set("name", params.Name)
+		}
+		if params.StrictNameSearch {
+			query.Set("strict-name-search", "true")
+		}
+		if params.Archived != nil {
+			query.Set("archived", strconv.FormatBool(*params.Archived))
+		}
+		var batch []Tag
+		path := "/workspaces/" + url.PathEscape(workspaceID) + "/tags"
+		if err := c.do(ctx, http.MethodGet, path, query, nil, &batch); err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if len(batch) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
+// CreateTag creates a workspace tag (POST, 201).
+func (c *Client) CreateTag(ctx context.Context, workspaceID string, req CreateTagRequest) (*Tag, error) {
+	path := "/workspaces/" + url.PathEscape(workspaceID) + "/tags"
+	var tag Tag
+	if err := c.do(ctx, http.MethodPost, path, nil, req, &tag); err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
+// GetTag fetches a single tag by ID.
+func (c *Client) GetTag(ctx context.Context, workspaceID, tagID string) (*Tag, error) {
+	path := fmt.Sprintf("/workspaces/%s/tags/%s", url.PathEscape(workspaceID), url.PathEscape(tagID))
+	var tag Tag
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &tag); err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
+// UpdateTag renames or archives a tag (PUT).
+func (c *Client) UpdateTag(ctx context.Context, workspaceID, tagID string, req UpdateTagRequest) (*Tag, error) {
+	path := fmt.Sprintf("/workspaces/%s/tags/%s", url.PathEscape(workspaceID), url.PathEscape(tagID))
+	var tag Tag
+	if err := c.do(ctx, http.MethodPut, path, nil, req, &tag); err != nil {
+		return nil, err
+	}
+	return &tag, nil
+}
+
+// DeleteTag permanently removes a tag (DELETE, 204 No Content).
+func (c *Client) DeleteTag(ctx context.Context, workspaceID, tagID string) error {
+	path := fmt.Sprintf("/workspaces/%s/tags/%s", url.PathEscape(workspaceID), url.PathEscape(tagID))
+	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+}
+
+// GetTasks lists tasks on a project, following pagination (up to 50 pages as
+// a safety bound).
+func (c *Client) GetTasks(ctx context.Context, workspaceID, projectID string, params TaskListParams) ([]Task, error) {
+	pageSize := params.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+	var all []Task
+	for page := 1; page <= 50; page++ {
+		query := url.Values{
+			"page":      {strconv.Itoa(page)},
+			"page-size": {strconv.Itoa(pageSize)},
+		}
+		if params.Name != "" {
+			query.Set("name", params.Name)
+		}
+		if params.StrictNameSearch {
+			query.Set("strict-name-search", "true")
+		}
+		if params.IsActive != nil {
+			query.Set("is-active", strconv.FormatBool(*params.IsActive))
+		}
+		var batch []Task
+		path := fmt.Sprintf("/workspaces/%s/projects/%s/tasks", url.PathEscape(workspaceID), url.PathEscape(projectID))
+		if err := c.do(ctx, http.MethodGet, path, query, nil, &batch); err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if len(batch) < pageSize {
+			break
+		}
+	}
+	return all, nil
+}
+
+// CreateTask creates a task on a project (POST, 201).
+func (c *Client) CreateTask(ctx context.Context, workspaceID, projectID string, req CreateTaskRequest) (*Task, error) {
+	path := fmt.Sprintf("/workspaces/%s/projects/%s/tasks", url.PathEscape(workspaceID), url.PathEscape(projectID))
+	var task Task
+	if err := c.do(ctx, http.MethodPost, path, nil, req, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// GetTask fetches a single task by ID.
+func (c *Client) GetTask(ctx context.Context, workspaceID, projectID, taskID string) (*Task, error) {
+	path := fmt.Sprintf("/workspaces/%s/projects/%s/tasks/%s",
+		url.PathEscape(workspaceID), url.PathEscape(projectID), url.PathEscape(taskID))
+	var task Task
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// UpdateTask edits a task on a project (PUT). Name is required by the API.
+func (c *Client) UpdateTask(ctx context.Context, workspaceID, projectID, taskID string, req UpdateTaskRequest) (*Task, error) {
+	path := fmt.Sprintf("/workspaces/%s/projects/%s/tasks/%s",
+		url.PathEscape(workspaceID), url.PathEscape(projectID), url.PathEscape(taskID))
+	var task Task
+	if err := c.do(ctx, http.MethodPut, path, nil, req, &task); err != nil {
+		return nil, err
+	}
+	return &task, nil
+}
+
+// DeleteTask permanently removes a task from a project (DELETE, 204).
+func (c *Client) DeleteTask(ctx context.Context, workspaceID, projectID, taskID string) error {
+	path := fmt.Sprintf("/workspaces/%s/projects/%s/tasks/%s",
+		url.PathEscape(workspaceID), url.PathEscape(projectID), url.PathEscape(taskID))
+	return c.do(ctx, http.MethodDelete, path, nil, nil, nil)
+}
+
 // parseErrorMessage extracts Clockify's {"message": "..."} envelope,
 // falling back to {"errors": {...}} and finally to the raw body.
 func parseErrorMessage(data []byte) string {

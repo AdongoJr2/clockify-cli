@@ -45,7 +45,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default $XDG_CONFIG_HOME/clockify-cli/config.yaml)")
-	rootCmd.AddCommand(configCmd, logCmd, startCmd, stopCmd, listCmd, updateCmd, deleteCmd, projectsCmd, duplicateCmd)
+	rootCmd.AddCommand(configCmd, logCmd, startCmd, stopCmd, listCmd, updateCmd, deleteCmd, projectsCmd, duplicateCmd, tagsCmd, tasksCmd)
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		return initConfig()
 	}

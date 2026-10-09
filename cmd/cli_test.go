@@ -36,14 +36,21 @@ func setupCLIEnv(t *testing.T, apiURL string) {
 // resetFlags restores every command flag to its default so tests never leak
 // state into each other.
 func resetFlags(c *cobra.Command) {
-	c.Flags().VisitAll(func(f *pflag.Flag) {
+	reset := func(f *pflag.Flag) {
+		if sv, ok := f.Value.(pflag.SliceValue); ok && f.Value.Type() == "stringSlice" {
+			// pflag's stringSliceValue replaces its contents only on the
+			// first Set call and appends afterwards, so Set(DefValue) can
+			// never shrink it back — Replace resets it in place (keeping
+			// the binding to the command's backing variable).
+			_ = sv.Replace(nil)
+			f.Changed = false
+			return
+		}
 		_ = f.Value.Set(f.DefValue)
 		f.Changed = false
-	})
-	c.PersistentFlags().VisitAll(func(f *pflag.Flag) {
-		_ = f.Value.Set(f.DefValue)
-		f.Changed = false
-	})
+	}
+	c.Flags().VisitAll(reset)
+	c.PersistentFlags().VisitAll(reset)
 	for _, child := range c.Commands() {
 		resetFlags(child)
 	}
@@ -654,6 +661,309 @@ func TestDuplicateRequiresTargetNonInteractive(t *testing.T) {
 	}
 	if _, ok := mock.find(http.MethodPost, "/duplicate"); ok {
 		t.Error("nothing should be duplicated without a target")
+	}
+}
+
+func TestTagsListEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "tags")
+	if err != nil {
+		t.Fatalf("tags: %v", err)
+	}
+	for _, want := range []string{"3 tags", "deep-work", "review", "legacy", "archived"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestTagsAddEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "tags", "--add", "ship-it")
+	if err != nil {
+		t.Fatalf("tags --add: %v", err)
+	}
+	if !strings.Contains(out, "Created tag: ship-it") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+	req, ok := mock.find(http.MethodPost, "/tags")
+	if !ok {
+		t.Fatal("no POST .../tags recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["name"] != "ship-it" {
+		t.Errorf("body name = %v, want ship-it", body["name"])
+	}
+}
+
+func TestTagsDeleteNonInteractiveNeedsYes(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "tags", "--delete", "legacy")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("err = %v, want a --yes refusal", err)
+	}
+	if _, ok := mock.find(http.MethodDelete, "/tags/"); ok {
+		t.Error("nothing should be deleted without confirmation")
+	}
+}
+
+func TestTagsDeleteEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "tags", "--delete", "legacy", "--yes")
+	if err != nil {
+		t.Fatalf("tags --delete: %v", err)
+	}
+	if !strings.Contains(out, "Deleted tag: legacy") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+	if _, ok := mock.find(http.MethodDelete, "/tags/t3"); !ok {
+		t.Error("no DELETE .../tags/t3 recorded (resolved from name)")
+	}
+}
+
+func TestTasksListEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "tasks", "-p", "Website Redesign")
+	if err != nil {
+		t.Fatalf("tasks: %v", err)
+	}
+	for _, want := range []string{"3 tasks", "Fix login", "Design review", "done", "2h"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestTasksRequiresProjectNonInteractive(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "tasks")
+	if err == nil || !strings.Contains(err.Error(), "--project is required") {
+		t.Fatalf("err = %v, want '--project is required'", err)
+	}
+}
+
+func TestTasksAddEndToEnd(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "tasks", "-p", "Website Redesign", "--add", "Ship it", "--estimate", "90m")
+	if err != nil {
+		t.Fatalf("tasks --add: %v", err)
+	}
+	if !strings.Contains(out, "Created task: Ship it") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+	req, ok := mock.find(http.MethodPost, "/tasks")
+	if !ok {
+		t.Fatal("no POST .../tasks recorded")
+	}
+	if !strings.HasSuffix(req.Path, "/projects/p1/tasks") {
+		t.Errorf("path = %q, want it under /projects/p1/tasks", req.Path)
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["name"] != "Ship it" {
+		t.Errorf("body name = %v, want Ship it", body["name"])
+	}
+	if body["estimate"] != "PT1H30M" {
+		t.Errorf("body estimate = %v, want PT1H30M (90m converted)", body["estimate"])
+	}
+}
+
+func TestTasksMarkDone(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "tasks", "-p", "Website Redesign", "--done", "Write docs")
+	if err != nil {
+		t.Fatalf("tasks --done: %v", err)
+	}
+	if !strings.Contains(out, "Task done: Write docs") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+	req, ok := mock.find(http.MethodPut, "/tasks/k2")
+	if !ok {
+		t.Fatal("no PUT .../tasks/k2 recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["status"] != "DONE" {
+		t.Errorf("body status = %v, want DONE", body["status"])
+	}
+	if body["name"] != "Write docs" {
+		t.Errorf("body name = %v, want 'Write docs' (required by the API)", body["name"])
+	}
+}
+
+func TestLogWithTagsAndTask(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "log",
+		"-d", "Tagged work", "--start", "09:00", "--duration", "1h",
+		"-p", "Website Redesign", "--tag", "deep-work,review", "--task", "Fix login")
+	if err != nil {
+		t.Fatalf("log: %v", err)
+	}
+	if !strings.Contains(out, "Logged 1h") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+
+	req, ok := mock.findByDescription(http.MethodPost, "Tagged work")
+	if !ok {
+		t.Fatal("no POST for 'Tagged work' recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["projectId"] != "p1" {
+		t.Errorf("projectId = %v, want p1", body["projectId"])
+	}
+	if body["taskId"] != "k1" {
+		t.Errorf("taskId = %v, want k1 (resolved from task name)", body["taskId"])
+	}
+	tagIDs, _ := body["tagIds"].([]any)
+	if len(tagIDs) != 2 || tagIDs[0] != "t1" || tagIDs[1] != "t2" {
+		t.Errorf("tagIds = %v, want [t1 t2]", tagIDs)
+	}
+}
+
+func TestLogTaskRequiresProject(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "log", "-d", "x", "--start", "09:00", "--duration", "1h",
+		"--task", "Fix login")
+	if err == nil || !strings.Contains(err.Error(), "--task requires a project") {
+		t.Fatalf("err = %v, want '--task requires a project'", err)
+	}
+	if got := mock.countRequests(http.MethodPost); got != 0 {
+		t.Errorf("unresolved task must abort before any POST, got %d", got)
+	}
+}
+
+func TestLogUnknownTagFails(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	_, err := runCLI(t, "log", "-d", "x", "--start", "09:00", "--duration", "1h",
+		"--tag", "nope")
+	if err == nil || !strings.Contains(err.Error(), "no tag matches") {
+		t.Fatalf("err = %v, want 'no tag matches'", err)
+	}
+	if got := mock.countRequests(http.MethodPost); got != 0 {
+		t.Errorf("unknown tag must abort before any POST, got %d", got)
+	}
+}
+
+func TestStartWithTagAndTask(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "start",
+		"-d", "Timer work", "-p", "Website Redesign",
+		"--tag", "deep-work", "--task", "Fix login")
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if !strings.Contains(out, "Timer started") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodPost, "/time-entries")
+	if !ok {
+		t.Fatal("no POST .../time-entries recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["taskId"] != "k1" {
+		t.Errorf("taskId = %v, want k1", body["taskId"])
+	}
+	tagIDs, _ := body["tagIds"].([]any)
+	if len(tagIDs) != 1 || tagIDs[0] != "t1" {
+		t.Errorf("tagIds = %v, want [t1]", tagIDs)
+	}
+}
+
+func TestUpdateTagsAndTask(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	out, err := runCLI(t, "update", "e1",
+		"-p", "Website Redesign", "--tag", "review", "--task", "Fix login")
+	if err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if !strings.Contains(out, "Updated entry") {
+		t.Errorf("missing success line:\n%s", out)
+	}
+
+	req, ok := mock.find(http.MethodPut, "/time-entries/e1")
+	if !ok {
+		t.Fatal("no PUT .../time-entries/e1 recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["projectId"] != "p1" {
+		t.Errorf("projectId = %v, want p1", body["projectId"])
+	}
+	if body["taskId"] != "k1" {
+		t.Errorf("taskId = %v, want k1", body["taskId"])
+	}
+	tagIDs, _ := body["tagIds"].([]any)
+	if len(tagIDs) != 1 || tagIDs[0] != "t2" {
+		t.Errorf("tagIds = %v, want [t2]", tagIDs)
+	}
+}
+
+func TestUpdateClearsTagsWithEmptyValue(t *testing.T) {
+	mock := newMockClockify(t)
+	setupCLIEnv(t, mock.server.URL)
+
+	if _, err := runCLI(t, "update", "e1", "--tag", ""); err != nil {
+		t.Fatalf("update --tag \"\": %v", err)
+	}
+	req, ok := mock.find(http.MethodPut, "/time-entries/e1")
+	if !ok {
+		t.Fatal("no PUT .../time-entries/e1 recorded")
+	}
+	var body map[string]any
+	if err := json.Unmarshal([]byte(req.Body), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	raw, present := body["tagIds"]
+	if !present {
+		t.Fatal("clearing tags must send an explicit empty tagIds")
+	}
+	if ids, ok := raw.([]any); !ok || len(ids) != 0 {
+		t.Errorf("tagIds = %v, want an empty array", raw)
+	}
+	if _, present := body["taskId"]; present {
+		t.Errorf("untouched task must not be sent, got %v", body["taskId"])
 	}
 }
 

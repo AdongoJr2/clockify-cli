@@ -112,6 +112,72 @@ func TestClassifyEndInput(t *testing.T) {
 	}
 }
 
+func TestISODurations(t *testing.T) {
+	t.Parallel()
+
+	toISO := []struct {
+		in   time.Duration
+		want string
+	}{
+		{90 * time.Minute, "PT1H30M"},
+		{4 * time.Hour, "PT4H"},
+		{45 * time.Minute, "PT45M"},
+		{0, ""},
+		{-time.Hour, ""},
+	}
+	for _, tt := range toISO {
+		if got := toISODuration(tt.in); got != tt.want {
+			t.Errorf("toISODuration(%v) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+
+	parse := []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"PT45M", 45 * time.Minute, false},
+		{"PT1H30M", 90 * time.Minute, false},
+		{"PT4H", 4 * time.Hour, false},
+		{"P1DT2H", 26 * time.Hour, false},
+		{"P2W", 14 * 24 * time.Hour, false},
+		{"pt1h30m", 90 * time.Minute, false}, // tolerant of lowercase
+		{"", 0, true},
+		{"1H30M", 0, true}, // missing P
+		{"PT", 0, true},    // no components
+		{"P1", 0, true},    // number without unit
+		{"PT1X", 0, true},  // unknown unit
+		{"PT1H3", 0, true}, // trailing number
+		{"1h30m", 0, true}, // Go duration, not ISO
+	}
+	for _, tt := range parse {
+		got, err := parseISODuration(tt.in)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("parseISODuration(%q) = %v, want error", tt.in, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("parseISODuration(%q): %v", tt.in, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("parseISODuration(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+
+	if got := formatISODuration("PT1H30M"); got != "1h 30m" {
+		t.Errorf("formatISODuration(PT1H30M) = %q, want %q", got, "1h 30m")
+	}
+	if got := formatISODuration(""); got != "" {
+		t.Errorf("formatISODuration(\"\") = %q, want empty", got)
+	}
+	if got := formatISODuration("garbage"); got != "garbage" {
+		t.Errorf("formatISODuration(garbage) = %q, want the raw input", got)
+	}
+}
+
 func TestFormatDuration(t *testing.T) {
 	t.Parallel()
 

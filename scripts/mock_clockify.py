@@ -11,6 +11,9 @@ Then, in another terminal (from the repo root):
     export CLOCKIFY_BASE_URL=http://127.0.0.1:8977
     ./clockify list
     ./clockify log -d "Demo work" --start 14:00 --duration 1h -p "Website Redesign"
+    ./clockify tags
+    ./clockify tasks -p "Website Redesign"
+    ./clockify log -d "Tagged" --start 15:00 --duration 1h -p "Website Redesign" --tag deep-work --task "Fix login"
     ./clockify start -d "Demo timer"
     ./clockify stop
 
@@ -27,6 +30,16 @@ PROJECTS = [
     {"id": "p1", "name": "Website Redesign", "billable": True},
     {"id": "p2", "name": "Backend API", "billable": True},
     {"id": "p3", "name": "Old Website", "billable": False, "archived": True},
+]
+TAGS = [
+    {"id": "t1", "name": "deep-work", "workspaceId": "w1"},
+    {"id": "t2", "name": "review", "workspaceId": "w1"},
+    {"id": "t3", "name": "legacy", "workspaceId": "w1", "archived": True},
+]
+TASKS = [
+    {"id": "k1", "name": "Fix login", "projectId": "p1", "status": "ACTIVE", "estimate": "PT2H"},
+    {"id": "k2", "name": "Write docs", "projectId": "p1", "status": "ACTIVE"},
+    {"id": "k3", "name": "Design review", "projectId": "p1", "status": "DONE"},
 ]
 ENTRIES = [
     {
@@ -88,6 +101,45 @@ class Handler(BaseHTTPRequestHandler):
             if params.get("archived") == ["true"]:
                 out = [p for p in out if p.get("archived")]
             self._send(out)
+        elif path.endswith("/tags"):
+            # Workspace tags: ?name= substring filter (?strict-name-search=true
+            # for exact), ?archived=true returns archived tags only.
+            params = parse_qs(urlparse(self.path).query)
+            out = list(TAGS)
+            if params.get("name"):
+                needle = params["name"][0].lower()
+                if params.get("strict-name-search") == ["true"]:
+                    out = [t for t in out if t["name"].lower() == needle]
+                else:
+                    out = [t for t in out if needle in t["name"].lower()]
+            if params.get("archived") == ["true"]:
+                out = [t for t in out if t.get("archived")]
+            self._send(out)
+        elif "/tags/" in path:
+            tag_id = path.rsplit("/", 1)[-1]
+            tag = next((t for t in TAGS if t["id"] == tag_id), None)
+            if tag is None:
+                self._send({"message": "tag not found"}, 404)
+            else:
+                self._send(tag)
+        elif path.endswith("/tasks"):
+            # /workspaces/{ws}/projects/{pid}/tasks
+            pid = path.split("/")[-2]
+            params = parse_qs(urlparse(self.path).query)
+            out = [t for t in TASKS if t.get("projectId") == pid]
+            if params.get("name"):
+                needle = params["name"][0].lower()
+                out = [t for t in out if needle in t["name"].lower()]
+            if params.get("is-active") == ["true"]:
+                out = [t for t in out if t.get("status") == "ACTIVE"]
+            self._send(out)
+        elif "/tasks/" in path:
+            task_id = path.rsplit("/", 1)[-1]
+            task = next((t for t in TASKS if t["id"] == task_id), None)
+            if task is None:
+                self._send({"message": "task not found"}, 404)
+            else:
+                self._send(task)
         elif path.endswith("/time-entries/status/in-progress"):
             self._send(RUNNING)
         elif "/time-entries/" in path:  # single entry: .../time-entries/{id}
@@ -112,9 +164,30 @@ class Handler(BaseHTTPRequestHandler):
             self._send({"message": f"no mock for GET {path}"}, 404)
 
     def do_DELETE(self):
-        entry_id = self.path.rsplit("/", 1)[-1]
+        path = self.path.split("?")[0]
+        obj_id = path.rsplit("/", 1)[-1]
+        if "/tags/" in path:
+            before = len(TAGS)
+            TAGS[:] = [t for t in TAGS if t["id"] != obj_id]
+            if len(TAGS) == before:
+                self._send({"message": "tag not found"}, 404)
+                return
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if "/tasks/" in path:
+            before = len(TASKS)
+            TASKS[:] = [t for t in TASKS if t["id"] != obj_id]
+            if len(TASKS) == before:
+                self._send({"message": "task not found"}, 404)
+                return
+            self.send_response(204)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         before = len(ENTRIES)
-        ENTRIES[:] = [e for e in ENTRIES if e["id"] != entry_id]
+        ENTRIES[:] = [e for e in ENTRIES if e["id"] != obj_id]
         if len(ENTRIES) == before:
             self._send({"message": "time entry not found"}, 404)
             return
@@ -158,11 +231,36 @@ class Handler(BaseHTTPRequestHandler):
             _next_id += 1
             if body.get("projectId"):
                 entry["projectId"] = body["projectId"]
+            if body.get("taskId"):
+                entry["taskId"] = body["taskId"]
+            if body.get("tagIds"):
+                entry["tagIds"] = body["tagIds"]
             ENTRIES.insert(0, entry)
             if not body.get("end"):  # timer started → mark as running
                 RUNNING.clear()
                 RUNNING.append({**entry, "userId": USER["id"]})
             self._send(self._entry_view(entry), 201)
+        elif self.path.endswith("/tags"):
+            name = (body.get("name") or "").strip()
+            if not name:
+                self._send({"message": "name is required"}, 400)
+                return
+            tag = {"id": f"t-mock-{len(TAGS) + 1}", "name": name, "workspaceId": "w1"}
+            TAGS.append(tag)
+            self._send(tag, 201)
+        elif self.path.split("?")[0].endswith("/tasks"):
+            path = self.path.split("?")[0]
+            pid = path.split("/")[-2]
+            name = (body.get("name") or "").strip()
+            if not name:
+                self._send({"message": "name is required"}, 400)
+                return
+            task = {"id": f"k-mock-{len(TASKS) + 1}", "name": name,
+                    "projectId": pid, "status": body.get("status") or "ACTIVE"}
+            if body.get("estimate"):
+                task["estimate"] = body["estimate"]
+            TASKS.append(task)
+            self._send(task, 201)
         else:
             self._send({"message": f"no mock for POST {self.path}"}, 404)
 
@@ -174,7 +272,34 @@ class Handler(BaseHTTPRequestHandler):
         self._send(stopped)
 
     def do_PUT(self):
+        path = self.path.split("?")[0]
         body = self._body()
+        if "/tags/" in path:
+            tag_id = path.rsplit("/", 1)[-1]
+            tag = next((t for t in TAGS if t["id"] == tag_id), None)
+            if tag is None:
+                self._send({"message": "tag not found"}, 404)
+                return
+            if body.get("name"):
+                tag["name"] = body["name"]
+            if "archived" in body:
+                tag["archived"] = body["archived"]
+            self._send(tag)
+            return
+        if "/tasks/" in path:
+            task_id = path.rsplit("/", 1)[-1]
+            task = next((t for t in TASKS if t["id"] == task_id), None)
+            if task is None:
+                self._send({"message": "task not found"}, 404)
+                return
+            if body.get("name"):
+                task["name"] = body["name"]
+            if body.get("status"):
+                task["status"] = body["status"]
+            if body.get("estimate"):
+                task["estimate"] = body["estimate"]
+            self._send(task)
+            return
         entry = {**ENTRIES[0], "description": body.get("description", ENTRIES[0]["description"])}
         ti = dict(ENTRIES[0]["timeInterval"])
         if body.get("start"):
@@ -182,6 +307,10 @@ class Handler(BaseHTTPRequestHandler):
         if "end" in body:
             ti["end"] = body["end"]
         entry["timeInterval"] = ti
+        if "tagIds" in body:
+            entry["tagIds"] = body["tagIds"]
+        if body.get("taskId"):
+            entry["taskId"] = body["taskId"]
         ENTRIES[0] = entry
         self._send(entry)
 

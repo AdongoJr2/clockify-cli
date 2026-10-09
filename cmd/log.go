@@ -20,6 +20,8 @@ type logInput struct {
 	end         string
 	duration    string
 	project     string
+	tags        []string
+	task        string
 	billable    bool
 	batch       string
 	dryRun      bool
@@ -39,6 +41,7 @@ interactive form. Times are interpreted in your local timezone and stored in UTC
 Examples:
   clockify log -d "Standup" --start "09:30" --duration 15m
   clockify log -d "Deep work" --start "2026-10-05 14:00" --end "16:00" -p "Website Redesign"
+  clockify log -d "Fix login" --start 09:00 --duration 2h -p "Website" --tag dev,review --task "Fix login"
   clockify log                                 # interactive form
   clockify log --batch entries.yaml            # many entries from YAML (validated first)
   clockify log --batch entries.yaml --dry-run  # validate and show the plan, send nothing`,
@@ -52,6 +55,8 @@ func init() {
 	logCmd.Flags().StringVar(&logFlags.end, "end", "", "end time (alternative to --duration)")
 	logCmd.Flags().StringVar(&logFlags.duration, "duration", "", `duration instead of end time (e.g. "1h30m")`)
 	logCmd.Flags().StringVarP(&logFlags.project, "project", "p", "", "project name or ID (optional)")
+	logCmd.Flags().StringSliceVar(&logFlags.tags, "tag", nil, "attach tags by name or ID (repeatable or comma-separated)")
+	logCmd.Flags().StringVar(&logFlags.task, "task", "", "attach a task by name or ID (needs --project)")
 	logCmd.Flags().BoolVar(&logFlags.billable, "billable", true, "mark the entry as billable")
 	logCmd.Flags().StringVar(&logFlags.batch, "batch", "", `log many entries from a YAML file ("-" for stdin)`)
 	logCmd.Flags().BoolVar(&logFlags.dryRun, "dry-run", false, "with --batch: validate and print the plan without calling the API")
@@ -64,7 +69,7 @@ func runLog(cmd *cobra.Command, _ []string) error {
 	// Batch mode: a YAML file of entries, fully validated before any request.
 	if batchPath := strings.TrimSpace(logFlags.batch); batchPath != "" {
 		var conflicting []string
-		for _, name := range []string{"description", "start", "end", "duration", "project", "billable"} {
+		for _, name := range []string{"description", "start", "end", "duration", "project", "tag", "task", "billable"} {
 			if cmd.Flags().Changed(name) {
 				conflicting = append(conflicting, "--"+name)
 			}
@@ -121,6 +126,29 @@ func runLog(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	var tagIDs []string
+	var taskID string
+	if len(in.tags) > 0 || strings.TrimSpace(in.task) != "" {
+		resolveErr := runWithSpinner("Resolving tags & task…", func() error {
+			var rerr error
+			tagIDs, rerr = resolveTagRefs(ctx, client, workspaceID, in.tags)
+			if rerr != nil {
+				return rerr
+			}
+			if ref := strings.TrimSpace(in.task); ref != "" {
+				if projectID == "" {
+					return errors.New("--task requires a project (add -p/--project)")
+				}
+				taskID, rerr = resolveTaskRef(ctx, client, workspaceID, projectID, ref)
+				return rerr
+			}
+			return nil
+		})
+		if resolveErr != nil {
+			return resolveErr
+		}
+	}
+
 	err = runWithSpinner("Saving time entry…", func() error {
 		_, err := client.CreateTimeEntry(ctx, workspaceID, clockify.CreateTimeEntryRequest{
 			Description: in.description,
@@ -128,6 +156,8 @@ func runLog(cmd *cobra.Command, _ []string) error {
 			End:         clockify.Ptr(end),
 			ProjectID:   projectID,
 			Billable:    clockify.Ptr(in.billable),
+			TagIDs:      tagIDs,
+			TaskID:      taskID,
 		})
 		return err
 	})
