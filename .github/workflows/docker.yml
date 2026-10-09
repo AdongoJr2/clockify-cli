@@ -60,6 +60,25 @@ jobs:
             echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
+
+      - name: Delete stale latest tag (rebuild guard)
+        if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
+        run: |
+          set -euo pipefail
+          version_id=$(curl -s -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "https://api.github.com/user/packages/container/clockify-cli/versions" \
+            | jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' | head -1) || true
+          if [ -n "$version_id" ]; then
+            echo "Deleting stale ghcr.io latest tag (version $version_id)"
+            status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
+              "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id")
+            if echo "$status" | grep -qE '^20[0-4]$'; then
+              echo "Stale latest tag deleted; rebuilding cleanly"
+            else
+              echo "WARN: failed to delete stale latest tag (HTTP $status)" >&2
+            fi
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
