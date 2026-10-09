@@ -62,21 +62,21 @@ jobs:
 
       - name: Delete stale latest tag (rebuild guard)
         if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
+        continue-on-error: true
         run: |
           set -euo pipefail
           api_url="https://api.github.com/user/packages/container/clockify-cli/versions"
           versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "$api_url") || true
-          echo "DEBUG: API status=$versions_response" >&2
-          cat /tmp/versions.json >&2
+          echo "DIAG versions_response=$versions_response" >&2
           version_id=$(cat /tmp/versions.json | jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' | head -1) || true
-          echo "DEBUG: version_id=$version_id" >&2
+          echo "DIAG version_id=$version_id" >&2
           status=""
           if [ -n "$version_id" ]; then
             echo "Deleting stale ghcr.io/latest (version $version_id)"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
               "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id")
-            echo "DEBUG: DELETE status=$status" >&2
+            echo "DIAG delete_status=$status" >&2
             if echo "$status" | grep -qE '^20[0-4]$'; then
               echo "Stale latest deleted; rebuilding cleanly"
             else
@@ -85,12 +85,24 @@ jobs:
           else
             echo "No stale ghcr.io/latest found; nothing to delete"
           fi
+          # Always push diagnostics to the diagnostics branch so they are
+          # visible even if the build below hangs on a corrupt :latest tag.
           {
-            echo "## Stale :latest cleanup diagnostics"
-            echo "- API status: $versions_response"
-            echo "- version_id: $version_id"
-            echo "- DELETE status: $status"
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "versions_response=$versions_response"
+            echo "version_id=$version_id"
+            echo "delete_status=$status"
+          } > /tmp/diag.txt
+          cp /tmp/versions.json diag/versions.json
+          cp /tmp/diag.txt diag/diag.txt
+          git add diag/
+          git config user.email "ghcr-rebuild@example.com"
+          git config user.name "ghcr-rebuild"
+          git checkout -q diagnostics 2>/dev/null || git checkout -q -b diagnostics
+          if git commit -q -m "diagnostics: stale :latest cleanup" 2>/dev/null && git push -q origin diagnostics 2>/dev/null; then
+            echo "DIAG pushed to diagnostics branch"
+          else
+            echo "DIAG: failed to write diagnostics" >&2
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v7
