@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Release notes on GitHub are generated from the sections below, so keep them
 concise and user-facing.
 
-## [Unreleased]
+## [0.11.0] - 2026-10-09
 
 ### Added
 
@@ -19,6 +19,11 @@ concise and user-facing.
   windows as `clockify list`; entries bucket by start time, running timers
   count as elapsed-so-far, and entries without a project appear as
   "(no project)".
+
+## [0.10.0] - 2026-10-09
+
+### Added
+
 - `clockify tags`: list workspace tags (name, ID, active/archived), create
   with `--add`, delete with `--delete` (confirmed, `--yes` to skip), and
   filter server-side by name.
@@ -34,10 +39,14 @@ concise and user-facing.
   project clears a task that belonged to the old project.
 - Batch entries accept `task:` and `tags:`; references resolve once, before
   the first request, and `--dry-run` shows them as TASK/TAGS columns.
+
+## [0.9.0] - 2026-10-07
+
+### Added
+
 - `clockify duplicate [entry-id]`: copy a time entry ("do it again") by ID or
   by picking from recent entries. The copy keeps everything; edit it after
   with `clockify update`.
-
 ## [0.8.0] - 2026-10-07
 
 ### Added
