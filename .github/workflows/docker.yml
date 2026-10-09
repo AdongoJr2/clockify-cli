@@ -43,7 +43,7 @@ jobs:
           set -euo pipefail
           image="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
           echo "image=$image" >> "$GITHUB_OUTPUT"
-          if [ "${{ github.event_name }}" = "push" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
             echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
