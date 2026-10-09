@@ -91,13 +91,15 @@ jobs:
           # ghcr.io V2 API (GHCR_PAT has registry write access even though the
           # PAT lacks gh API write:packages). First probe the tag with HEAD.
           echo "DIAG: probing registry HEAD for :latest" >&2
-          head_line=$(curl -s -o /dev/null -w '%{http_code} docker-content-digest=%{header_docker_content_digest} size=%{header_docker_content_size}' \
+          head_status=$(curl -s -o /tmp/head_body -w '%{http_code}' \
             -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
             -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json" \
             "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
-          echo "DIAG: registry HEAD=$head_line" >&2
-          digest=$(echo "$head_line" | sed -n 's/.*docker-content-digest=\([^ ]*\).*/\1/p')
-          if [ -n "$digest" ]; then
+          head_bytes=$(wc -c < /tmp/head_body 2>/dev/null || echo 0)
+          echo "DIAG: registry HEAD(GHCR_PAT) status=$head_status bytes=$head_bytes" >&2
+          digest=""
+          if [ "$head_status" = "200" ]; then
+            digest=$(sha256sum /tmp/head_body | awk '{print "sha256:" $1}')
             echo "DIAG: registry manifest digest=$digest" >&2
             reg_status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
@@ -110,26 +112,31 @@ jobs:
               echo "WARN: registry digest DELETE returned HTTP $reg_status" >&2
             fi
           else
-            echo "No digest obtained for :latest; skipping registry delete"
+            echo "HEAD with GHCR_PAT returned $head_status; skipping registry delete (may retry via OAuth)"
           fi
           # Step 4: exchange the PAT for a ghcr.io OAuth token (this is what
           # docker login does), then use it for the registry V2 API.
           echo "DIAG: exchanging PAT for ghcr.io OAuth token" >&2
-          token_resp=$(curl -s -w '\nHTTP:%{http_code}' -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)"             "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push" 2>/dev/null) || true
-          echo "DIAG: token_resp_http=$(echo "$token_resp" | tail -n1)" >&2
-          echo "DIAG: token_resp_body=$(echo "$token_resp" | head -n -1)" >&2
+          token_resp=$(curl -s -D /tmp/token_headers -o /tmp/token_body -w 'HTTP:%{http_code}' \
+            -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)" \
+            "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push" 2>/dev/null) || true
+          token_status=$(tail -n1 /tmp/token_headers)
+          token_body=$(cat /tmp/token_body)
+          echo "DIAG: token_resp_http=$token_status" >&2
+          echo "DIAG: token_resp_body=$token_body" >&2
           oauth_token=$(echo "$token_resp" | head -n -1 | jq -r '.token' 2>/dev/null) || true
           echo "DIAG: oauth_token=${oauth_token:0:16}...${#oauth_token}" >&2
           if [ -n "$oauth_token" ]; then
             echo "DIAG: trying HEAD with OAuth token" >&2
-            head_o=$(curl -s -o /tmp/head_body -w '%{http_code} docker-content-digest=%{header_docker_content_digest} size=%{header_docker_content_size}' \
+            head_o_status=$(curl -s -o /tmp/head_body -w '%{http_code}' \
               -H "Authorization: Bearer $oauth_token" \
               -H "Accept: application/vnd.docker.distribution.manifest.v2+json, application/vnd.oci.image.index.v1+json" \
               "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
-            echo "DIAG: registry HEAD(OAuth)=$head_o" >&2
-            echo "DIAG: head_body=$(cat /tmp/head_body)" >&2
-            digest=$(echo "$head_o" | sed -n 's/.*docker-content-digest=\([^ ]*\).*/\1/p')
-            if [ -n "$digest" ]; then
+            head_o_bytes=$(wc -c < /tmp/head_body 2>/dev/null || echo 0)
+            echo "DIAG: registry HEAD(OAuth) status=$head_o_status bytes=$head_o_bytes" >&2
+            if [ "$head_o_status" = "200" ]; then
+              digest=$(sha256sum /tmp/head_body | awk '{print "sha256:" $1}')
+              echo "DIAG: registry manifest digest (sha256 of manifest body)=$digest" >&2
               echo "DIAG: deleting manifest digest $digest with OAuth token" >&2
               del_o=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
                 -H "Authorization: Bearer $oauth_token" \
@@ -141,6 +148,8 @@ jobs:
               else
                 echo "WARN: registry OAuth DELETE returned $del_o" >&2
               fi
+            else
+              echo "HEAD with OAuth token returned $head_o_status; skipping registry delete"
             fi
           else
             echo "WARN: failed to obtain ghcr.io OAuth token" >&2
