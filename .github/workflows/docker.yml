@@ -65,8 +65,7 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          # Step 1: find the version id of the existing :latest tag.
-          # GET needs read:packages (GHCR_PAT has it; GITHUB_TOKEN may not).
+          # Step 1: find the version id of the existing :latest tag (needs read:packages).
           api_url="https://api.github.com/user/packages/container/clockify-cli/versions"
           versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "$api_url") || true
           echo "DIAG versions_response=$versions_response" >&2
@@ -75,8 +74,8 @@ jobs:
           if [ -z "$version_id" ]; then
             echo "No existing ghcr.io/latest tag found; nothing to delete"
           else
-            # Step 2: delete the version using the runner token (GITHUB_TOKEN has
-            # packages: write from the workflow permissions; GHCR_PAT lacks write:packages).
+            # Step 2: try to delete the version with the runner token
+            # (GITHUB_TOKEN has packages: write from workflow permissions).
             echo "Deleting stale ghcr.io/latest (version $version_id) with GITHUB_TOKEN"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -88,16 +87,29 @@ jobs:
               echo "WARN: stale latest delete failed (HTTP $status)" >&2
             fi
           fi
-          # Fallback: delete at the registry level using the GHCR_PAT (registry
-          # write is accepted by ghcr.io even though the PAT lacks gh API write:packages).
-          echo "DIAG: attempting registry-level :latest manifest deletion" >&2
-          reg_status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE             -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}"             -H "Accept: application/vnd.docker.distribution.manifest.v2+json"             "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
-          echo "DIAG: registry DELETE status=$reg_status" >&2
-          case "$reg_status" in
-            20[0-4]) echo "Registry :latest manifest deleted; rebuilding cleanly";;
-            404)     echo "Registry :latest manifest already gone";;
-            *)       echo "WARN: registry DELETE returned HTTP $reg_status" >&2;;
-          esac
+          # Step 3: fallback — delete the registry manifest directly via the
+          # ghcr.io V2 API (GHCR_PAT has registry write access even though the
+          # PAT lacks gh API write:packages). First probe the tag with HEAD.
+          echo "DIAG: probing registry HEAD for :latest" >&2
+          head_line=$(curl -s -o /dev/null -w '%{http_code} docker-content-digest=%{header_docker_content_digest} size=%{header_docker_content_size}' \
+            -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
+            "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/latest" 2>/dev/null) || true
+          echo "DIAG: registry HEAD=$head_line" >&2
+          digest=$(echo "$head_line" | sed -n 's/.*docker-content-digest=\([^ ]*\).*/\1/p')
+          if [ -n "$digest" ]; then
+            echo "DIAG: registry manifest digest=$digest" >&2
+            reg_status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+              -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
+              "https://ghcr.io/v2/adongojr2/clockify-cli/manifests/$digest" 2>/dev/null) || true
+            echo "DIAG: registry DELETE(digest) status=$reg_status" >&2
+            if echo "$reg_status" | grep -qE '^20[0-4]$'; then
+              echo "Registry :latest manifest deleted by digest; rebuilding cleanly"
+            else
+              echo "WARN: registry digest DELETE returned HTTP $reg_status" >&2
+            fi
+          else
+            echo "No digest obtained for :latest; skipping registry delete"
+          fi
 
       - name: Build and push
         uses: docker/build-push-action@v7
