@@ -115,6 +115,11 @@ clockify list --sort duration    # longest first
 clockify list --sort start --asc # oldest first
 clockify list --no-trunc        # full descriptions and project names
 
+clockify report                 # this week: total + per-day + per-project
+clockify report --range last-week
+clockify report --range month   # this month
+clockify report --from 2026-10-01 --to 2026-10-07
+
 clockify update <entry-id> -d "Renamed task"
 clockify update <entry-id> --start "09:00" --end "11:00"
 clockify update <entry-id> --start "14:00" --duration 2h -p "Backend API"
@@ -219,6 +224,32 @@ clockify list --range last-week -n 10        # combine with -n
   given, so ordering applies to more than the latest few entries.
 - With shell completion enabled (`clockify completion bash`), `--range`
   suggests the valid presets.
+
+### Reports
+
+`clockify report` summarizes a period in two tables — **by day** (date,
+entries, duration) and **by project** (entries, duration, share of the total,
+billable share) — plus a one-line summary of the grand total. It defaults to
+the current week (Monday–Sunday) and accepts the same range flags as
+`clockify list`:
+
+```bash
+clockify report                          # this week
+clockify report --range last-week
+clockify report --range month            # this month
+clockify report --range 30d
+clockify report --from 2026-10-01 --to 2026-10-07
+```
+
+- Entries are bucketed by their **start time** (local timezone), matching the
+  `list` filter: a multi-day entry counts entirely on its start day.
+- A **running timer** is counted as elapsed-so-far and called out in the
+  summary line.
+- Projects are ordered by total time; entries without a project appear as
+  `(no project)`.
+- Aggregation happens client-side over your entries — Clockify's server-side
+  report endpoints (`reports/summary`, `reports/weekly`) need the heavier
+  report-DTO contract; this keeps output deterministic and dependency-free.
 
 ### Projects
 

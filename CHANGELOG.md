@@ -12,6 +12,13 @@ concise and user-facing.
 
 ### Added
 
+- `clockify report`: summarize tracked time for a period (default: this
+  week, Monday–Sunday) with a grand total plus per-day and per-project
+  tables — each project row shows entries, duration, share of the total,
+  and billable share. Accepts the same `--range` presets and `--from/--to`
+  windows as `clockify list`; entries bucket by start time, running timers
+  count as elapsed-so-far, and entries without a project appear as
+  "(no project)".
 - `clockify tags`: list workspace tags (name, ID, active/archived), create
   with `--add`, delete with `--delete` (confirmed, `--yes` to skip), and
   filter server-side by name.

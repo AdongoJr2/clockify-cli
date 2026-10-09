@@ -56,11 +56,35 @@ ENTRIES = [
         "id": "e2",
         "description": "Standup",
         "billable": False,
-        "project": {"id": "p1", "name": "Website Redesign", "clientName": "Acme"},
+        "projectId": "p1",
         "timeInterval": {
             "start": "2026-10-05T08:30:00Z",
             "end": "2026-10-05T08:45:00Z",
             "duration": "PT15M",
+        },
+    },
+    {
+        "id": "e3",
+        "description": "API client rewrite",
+        "billable": True,
+        "projectId": "p2",
+        "tags": [{"id": "t1", "name": "deep-work"}],
+        "timeInterval": {
+            "start": "2026-10-06T11:00:00Z",
+            "end": "2026-10-06T12:30:00Z",
+            "duration": "PT1H30M",
+        },
+    },
+    {
+        "id": "e4",
+        "description": "Design review prep",
+        "billable": True,
+        "projectId": "p1",
+        "tags": [{"id": "t2", "name": "review"}],
+        "timeInterval": {
+            "start": "2026-10-07T13:00:00Z",
+            "end": "2026-10-07T14:00:00Z",
+            "duration": "PT1H",
         },
     },
 ]
