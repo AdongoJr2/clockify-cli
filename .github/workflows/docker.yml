@@ -65,18 +65,26 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
         run: |
           set -euo pipefail
-          version_id=$(curl -s -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "https://api.github.com/user/packages/container/clockify-cli/versions" \
-            | jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' | head -1) || true
+          echo "DEBUG: starting stale tag cleanup" >&2
+          api_url="https://api.github.com/user/packages/container/clockify-cli/versions"
+          versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "$api_url") || true
+          echo "DEBUG: API HTTP status=$versions_response" >&2
+          cat /tmp/versions.json >&2
+          version_id=$(cat /tmp/versions.json | jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' | head -1) || true
+          echo "DEBUG: version_id=$version_id" >&2
           if [ -n "$version_id" ]; then
             echo "Deleting stale ghcr.io latest tag (version $version_id)"
             status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
               -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
               "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id")
+            echo "DEBUG: DELETE HTTP status=$status" >&2
             if echo "$status" | grep -qE '^20[0-4]$'; then
               echo "Stale latest tag deleted; rebuilding cleanly"
             else
               echo "WARN: failed to delete stale latest tag (HTTP $status)" >&2
             fi
+          else
+            echo "No existing ghcr.io latest tag found; nothing to delete"
           fi
 
       - name: Build and push
