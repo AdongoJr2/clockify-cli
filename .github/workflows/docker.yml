@@ -113,7 +113,7 @@ jobs:
           # Step 4: exchange the PAT for a ghcr.io OAuth token (this is what
           # docker login does), then use it for the registry V2 API.
           echo "DIAG: exchanging PAT for ghcr.io OAuth token" >&2
-          oauth_token=$(curl -s -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)"             "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push"             | jq -r '.access_token' 2>/dev/null) || true
+          oauth_token=$(curl -s -H "Authorization: Basic $(printf '%s:%s' AdongoJr2 "${{ secrets.GHCR_PAT }}" | base64 -w0)"             "https://ghcr.io/token?service=ghcr.io&scope=repository:adongojr2/clockify-cli:pull,push"             | jq -r '.token' 2>/dev/null) || true
           echo "DIAG: oauth_token=${oauth_token:0:16}...${#oauth_token}" >&2
           if [ -n "$oauth_token" ]; then
             echo "DIAG: trying HEAD with OAuth token" >&2
