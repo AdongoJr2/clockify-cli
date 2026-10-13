@@ -1,0 +1,64 @@
+name: Bug report
+description: Something isn't working correctly — let us know.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report! If this is a **security** issue, please stop and
+        follow [SECURITY.md](https://github.com/AdongoJr2/clockify-cli/blob/main/SECURITY.md)
+        instead — don't open a public issue.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Clear description of the bug and what you expected instead.
+      placeholder: "Ran `clockify log`, expected the entry to be created, but got..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: The exact commands that trigger it, from a fresh shell if possible.
+      render: shell
+      placeholder: |
+        export CLOCKIFY_API_KEY=...
+        clockify log --project X --start 09:00 --end 10:00
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `clockify --version`.
+      placeholder: "clockify version v0.11.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: OS / shell
+      placeholder: "e.g. Ubuntu 24.04, zsh 5.9 — or macOS 15, fish"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant output
+      description: Error messages or verbose logs (`--verbose` if available). Redact API keys.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate
+        - label: I am not reporting a security vulnerability (see SECURITY.md)

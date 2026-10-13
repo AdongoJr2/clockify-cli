@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest an idea or improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas of all sizes are welcome — small quality-of-life fixes count too.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The workflow or annoyance you're hitting today.
+      placeholder: "I currently have to run two commands to..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like?
+      description: The behavior you'd expect, with an example CLI invocation if you can picture one.
+      placeholder: "clockify log --dry-run to preview without creating an entry"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Workarounds or other tools' behavior that gets close.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I searched existing issues and this is not a duplicate
