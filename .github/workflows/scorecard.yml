@@ -1,0 +1,54 @@
+# Supply-chain security analysis via OpenSSF Scorecard.
+# Publishes results to the public Scorecard API (badge) and to the
+# repository's code-scanning dashboard (Security tab).
+name: Scorecard supply-chain security
+on:
+  # For the Branch-Protection check.
+  branch_protection_rule:
+  # To guarantee fetching the most recent scorecard result.
+  schedule:
+    - cron: '37 5 * * 1'
+  # To allow Matrix to reuse the cached scorecard result.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Declare default permissions as read only.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Upload results to the code-scanning dashboard.
+      security-events: write
+      # Publish results and get a badge (sigstore signing).
+      id-token: write
+      contents: read
+      actions: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+        with:
+          sarif_file: results.sarif

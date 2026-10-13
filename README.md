@@ -1,6 +1,7 @@
 # clockify ⏱
 
 [![CI](https://github.com/AdongoJr2/clockify-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/AdongoJr2/clockify-cli/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/AdongoJr2/clockify-cli/badge)](https://securityscorecards.dev/viewer/?uri=github.com/AdongoJr2/clockify-cli)
 [![Release](https://img.shields.io/badge/release-latest-03A9F4?logo=github&logoColor=white)](https://github.com/AdongoJr2/clockify-cli/releases/latest)
 [![Container](https://img.shields.io/badge/container-ghcr.io-03A9F4?logo=docker&logoColor=white)](https://github.com/AdongoJr2/clockify-cli/pkgs/container/clockify-cli)
 [![Go](https://img.shields.io/badge/go-1.27-03A9F4?logo=go&logoColor=white)](https://go.dev)
