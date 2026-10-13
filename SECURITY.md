@@ -15,6 +15,9 @@ version (`clockify --version`) before reporting a suspected vulnerability.
 **Please do not open a public issue.** Instead, use GitHub's private
 vulnerability reporting:
 
+Report privately at:
+<https://github.com/AdongoJr2/clockify-cli/security/advisories/new>
+
 1. Go to the repository's **Security** tab → **Advisories** → **Report a
    vulnerability** (maintainers: this must be enabled under
    *Settings → Code security → Private vulnerability reporting*).
