@@ -18,7 +18,11 @@ RUN CGO_ENABLED=0 go build -trimpath \
       -o /out/clockify .
 
 # ---- runtime stage ---------------------------------------------------------
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50dda910ddb8c51d4cabeaec77e6
+# NOTE: pinned to the tag, not a digest — Docker Hub does not serve alpine's
+# OCI image-index digest by reference (content-negotiation-only), so a digest
+# pin here fails to resolve in BuildKit. The golang build-stage pin above
+# *is* digest-pinned. Dependabot keeps this tag current.
+FROM alpine:3.24
 
 # tzdata: the CLI resolves local timezones; ca-certificates: TLS to api.clockify.me
 RUN apk add --no-cache ca-certificates tzdata \
