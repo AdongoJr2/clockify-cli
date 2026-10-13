@@ -12,7 +12,9 @@ Thanks for stopping by — issues, ideas, and pull requests are all welcome.
 
 ## Development setup
 
-Requires [Go](https://go.dev/dl/) 1.27 or newer.
+Requires [Go](https://go.dev/dl/) 1.27 or newer. CI runs
+[golangci-lint](https://golangci-lint.run/) (config in `.golangci.yml`) — worth
+running locally too:
 
 ```bash
 git clone https://github.com/AdongoJr2/clockify-cli.git
@@ -21,6 +23,10 @@ go build ./...     # compile everything
 go vet ./...       # static analysis
 gofmt -l .         # must print nothing
 go test -race ./...  # full suite (unit + end-to-end, no network needed)
+
+# same checks as the CI lint job:
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+golangci-lint run
 ```
 
 ### Trying the binary without a Clockify account
@@ -42,7 +48,8 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`,
 
 ## Pull request checklist
 
-- [ ] `gofmt -l .` prints nothing, `go vet ./...` and `go test -race ./...` pass
+- [ ] `gofmt -l .` prints nothing; `go vet ./...`, `golangci-lint run` and
+      `go test -race ./...` pass
 - [ ] New behavior has tests (see `cmd/*_test.go` and the in-process mock in
       `cmd/mock_test.go` for the established patterns)
 - [ ] `README.md` and `CHANGELOG.md` updated (feature changes go under
