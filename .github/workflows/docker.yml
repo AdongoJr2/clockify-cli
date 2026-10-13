@@ -60,41 +60,6 @@ jobs:
             echo "version=dev-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Delete stale latest tag (rebuild guard)
-        if: github.event_name == 'workflow_dispatch' && inputs.tag == ''
-        run: |
-          set -euo pipefail
-          # Step 0: diagnose — print the GHCR_PAT's scopes and the versions list.
-          echo "DIAG PAT scopes:" >&2
-          curl -s -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
-            "https://api.github.com/user" | jq -r '.login, (.token_scopes | join(", "))' >&2
-          echo "DIAG versions:" >&2
-          curl -s -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
-            "https://api.github.com/user/packages/container/clockify-cli/versions" | \
-            jq -r '.[] | "  id=\(.id) tags=\(.metadata.container.tags | join(","))"' >&2
-          # Step 1: find the version id of the existing :latest tag (needs read:packages).
-          api_url="https://api.github.com/user/packages/container/clockify-cli/versions"
-          versions_response=$(curl -s -o /tmp/versions.json -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" "$api_url") || true
-          echo "DIAG versions_response=$versions_response" >&2
-          version_id=$(jq -r '.[] | select(.metadata.container.tags | index("latest")) | .id' /tmp/versions.json | head -1) || true
-          echo "DIAG version_id=$version_id" >&2
-          if [ -z "$version_id" ]; then
-            echo "No existing ghcr.io/latest tag found; nothing to delete"
-          else
-            # GHCR_PAT has read:packages + write:packages scopes, so it can delete the package version.
-            echo "Deleting ghcr.io/latest package version $version_id (removes :latest tag) with GHCR_PAT"
-            status=$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
-              -H "Authorization: Bearer ${{ secrets.GHCR_PAT }}" \
-              "https://api.github.com/user/packages/container/clockify-cli/versions/$version_id") || true
-            echo "DIAG delete_status=$status" >&2
-            if echo "$status" | grep -qE '^20[0-4]$'; then
-              echo "Stale :latest tag + manifests deleted; rebuilding cleanly"
-            else
-              echo "ERROR: failed to delete ghcr.io/latest (HTTP $status); aborting" >&2
-              exit 1
-            fi
-          fi
-
       - name: Build and push
         uses: docker/build-push-action@v7
         with:
