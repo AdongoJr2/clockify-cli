@@ -1,0 +1,12 @@
+version: "2"
+
+linters:
+  # Standard set: errcheck, govet, ineffassign, staticcheck, unused.
+  # shadow is deliberately not enabled — it's an opt-in check that flags
+  # idiomatic Go (nested `err :=` scopes) more often than real bugs.
+  default: standard
+
+formatters:
+  enable:
+    - gofmt
+

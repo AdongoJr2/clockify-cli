@@ -13,6 +13,22 @@ env:
   ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION: node24
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.14.0
+
   build:
     runs-on: ubuntu-latest
     steps:
@@ -38,4 +54,10 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test -race ./...
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./...
+
+      - name: Coverage summary
+        run: |
+          total="$(go tool cover -func=coverage.out | tail -1 | awk '{print $3}')"
+          echo "### Test coverage: ${total}" >> "$GITHUB_STEP_SUMMARY"
+          go tool cover -func=coverage.out >> "$GITHUB_STEP_SUMMARY"

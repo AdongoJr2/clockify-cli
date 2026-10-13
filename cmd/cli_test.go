@@ -1023,7 +1023,7 @@ func TestListSortDurationEndToEnd(t *testing.T) {
 	}
 	// Default duration direction: longest first.
 	p := rowOrder(t, out, "alpha task", "Middle", "Zebra task")
-	if !(p[0] < p[1] && p[1] < p[2]) {
+	if p[0] >= p[1] || p[1] >= p[2] {
 		t.Errorf("duration desc order wrong (positions %v):\n%s", p, out)
 	}
 
@@ -1035,7 +1035,7 @@ func TestListSortDurationEndToEnd(t *testing.T) {
 		t.Errorf("asc header missing:\n%s", out)
 	}
 	p = rowOrder(t, out, "Zebra task", "Middle", "alpha task")
-	if !(p[0] < p[1] && p[1] < p[2]) {
+	if p[0] >= p[1] || p[1] >= p[2] {
 		t.Errorf("duration asc order wrong (positions %v):\n%s", p, out)
 	}
 }
@@ -1051,7 +1051,7 @@ func TestListSortStartDefaultDirection(t *testing.T) {
 	}
 	// start desc → most recent start (10:00 Middle) first, earliest (08:00) last.
 	p := rowOrder(t, out, "Middle", "Zebra task", "alpha task")
-	if !(p[0] < p[1] && p[1] < p[2]) {
+	if p[0] >= p[1] || p[1] >= p[2] {
 		t.Errorf("start desc order wrong (positions %v):\n%s", p, out)
 	}
 

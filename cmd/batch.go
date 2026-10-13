@@ -132,8 +132,8 @@ func parseBatchFile(data []byte, now time.Time) ([]resolvedEntry, error) {
 
 		startStr := strings.TrimSpace(raw.Start)
 		var start time.Time
-		switch {
-		case startStr == "":
+		switch startStr {
+		case "":
 			fail("%s: start is required", label)
 		default:
 			t, err := parseUserTime(startStr, now)
